@@ -11,7 +11,7 @@ Updated: 2025-06-30, tested on Windows 11 and MacOS 15.5
 
 Read the [full documentation](docs/index.md).
 
-Find our origingal website at [https://argus.web.unc.edu](https://argus.web.unc.edu).
+Find our original website at [https://argus.web.unc.edu](https://argus.web.unc.edu).
 
 ### How do I get set up?
 
