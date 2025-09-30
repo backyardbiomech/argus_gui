@@ -24,7 +24,7 @@ setup(
         "numpy >= 1.19.0",
         "pandas >= 1.0.0",
         "matplotlib >= 3.0.0",
-        "opencv-python >= 4.0.0",
+        "opencv-contrib-python >= 4.0.0",
         "pyopengl",
         "pyglet >= 2.0.16, < 2.1",  # Pin to compatible version range
         "moviepy >= 1.0.0",
