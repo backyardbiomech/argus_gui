@@ -176,10 +176,21 @@ argus-gui
 ### Common Issues
 
 #### OpenCV Error
-If you encounter an error related to `cv2` or `opencv`:
+If you encounter an error related to `cv2` or `opencv`, or if omnidirectional calibration fails with `INITIAL_FISHEYE` not defined:
+
+**With pip:**
 ```bash
+pip uninstall opencv-python
 pip install opencv-contrib-python
 ```
+
+**With uv:**
+```bash
+uv pip uninstall opencv-python
+uv pip install opencv-contrib-python
+```
+
+**Note:** The `opencv-contrib-python` package includes additional modules (like `omnidir`) needed for omnidirectional camera calibration.
 
 #### FFmpeg Error (Windows)
 If you encounter an error related to `ffmpeg` or `ffplay`, or an error reporting something like a file cannot be found:

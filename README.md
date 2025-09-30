@@ -64,9 +64,15 @@ Then run: `argus-gui`
 
 **Troubleshooting:** 
 
-- If during use you encounter an error related to `cv2` or `opencv`, you can try installing the contrib package:
+- If during use you encounter an error related to `cv2` or `opencv`, or if omnidirectional calibration fails with `INITIAL_FISHEYE` not defined, you need the contrib package:
   ```bash
+  # With pip:
+  pip uninstall opencv-python
   pip install opencv-contrib-python
+  
+  # With uv:
+  uv pip uninstall opencv-python
+  uv pip install opencv-contrib-python
   ```
 
 - If you (especially on Windows) encounter an error related to `ffmpeg`, or `ffplay`, download the latest version of `ffmpeg` add it to your system's PATH using <a href="https://www.wikihow.com/Install-FFmpeg-on-Windows" target="_blank">these instructions</a>.
