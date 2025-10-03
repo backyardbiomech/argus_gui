@@ -1674,10 +1674,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 ret = ",".join(co)
                 return ret
             else:
+                # Use video dimensions if available, otherwise default values
+                width = getattr(self, 'video_width', 1920)
+                height = getattr(self, 'video_height', 1080)
                 co = [
                     self.dwarp_fl.text(),
-                    str(self.width),
-                    str(self.height),
+                    str(width),
+                    str(height),
                     self.dwarp_cx.text(),
                     self.dwarp_cy.text(),
                     self.dwarp_k1.text(),
@@ -1777,15 +1780,34 @@ class MainWindow(QtWidgets.QMainWindow):
                     # Use the first row (best calibration)
                     row = df.iloc[0]
                     
-                    # Extract coefficients - column names may vary
-                    focal_length = row.get('fx', row.get('focal_length', 1000))
-                    cx = row.get('cx', row.get('px', 0))
-                    cy = row.get('cy', row.get('py', 0))
-                    k1 = row.get('k1', row.get('r2', 0))
-                    k2 = row.get('k2', row.get('r4', 0))
-                    t1 = row.get('t1', 0)
-                    t2 = row.get('t2', 0)
-                    k3 = row.get('k3', row.get('r6', 0))
+                    # Check if this is an omnidirectional profile (has xi column)
+                    if 'xi' in df.columns:
+                        # Omnidirectional profile: f,cx,cy,AR,s,k1,k2,t1,t2,xi,rmse
+                        focal_length = row.get('f', 1000)
+                        cx = row.get('cx', 0)
+                        cy = row.get('cy', 0)
+                        k1 = row.get('k1', 0)
+                        k2 = row.get('k2', 0)
+                        t1 = row.get('t1', 0)
+                        t2 = row.get('t2', 0)
+                        k3 = 0  # Not used in omnidirectional
+                        xi = row.get('xi', 1.0)
+                        
+                        # Set the mode to CMei for omnidirectional
+                        mode_idx = self.dwarp_modes.findText("CMei", QtCore.Qt.MatchFlag.MatchContains)
+                        if mode_idx >= 0:
+                            self.dwarp_modes.setCurrentIndex(mode_idx)
+                    else:
+                        # Standard pinhole profile - extract coefficients with column name variations
+                        focal_length = row.get('fx', row.get('focal_length', row.get('f', 1000)))
+                        cx = row.get('cx', row.get('px', 0))
+                        cy = row.get('cy', row.get('py', 0))
+                        k1 = row.get('k1', row.get('r2', 0))
+                        k2 = row.get('k2', row.get('r4', 0))
+                        t1 = row.get('t1', 0)
+                        t2 = row.get('t2', 0)
+                        k3 = row.get('k3', row.get('r6', 0))
+                        xi = 1.0  # Default for pinhole
                     
                     # Populate the Dwarp fields
                     self.dwarp_fl.setText(str(focal_length))
@@ -1796,7 +1818,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.dwarp_t1.setText(str(t1))
                     self.dwarp_t2.setText(str(t2))
                     self.dwarp_k3.setText(str(k3))
-                    self.dwarp_xi.setText("1.0")
+                    self.dwarp_xi.setText(str(xi))
+                    
+                    # For omnidirectional profiles, we need to set width/height from video when dwarp runs
+                    # These will be updated in dwarp_go() when the video file is opened
                     
                     self.enableEntries()
                     
@@ -1812,6 +1837,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 raise Exception(f"Could not parse file as profile format or CSV: {str(e)}, CSV error: {str(csv_error)}")
 
     def dwarp_go(self):
+        # Extract video dimensions for CMei models before processing
+        video_file = self.dwarp_file.text()
+        if video_file and "(CMei)" in self.dwarp_modes.currentText():
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_file)
+                self.video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "Video Error", 
+                    f"Could not read video dimensions: {str(e)}"
+                )
+                return
+        
         of = self.dwarp_onam.text()
         # check for properly named output file (if it exists) & fix it if appropriate
         if of != "":

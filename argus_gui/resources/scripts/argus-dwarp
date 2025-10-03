@@ -39,6 +39,9 @@ if __name__ == '__main__':
                         help='Specifies that the coefficients passed our omnidirectional coefficients of CMeis model in OpenCV 3')
     parser.add_argument('--copy', action='store_true',
                         help='Specifies that the inputted video should be copied.  Helps deal with bad headers, missing frames, etc.')
+    parser.add_argument('--profile', type=str,
+                        help='Path to a camera profile CSV file (e.g., calibrations.csv from argus-calibrate). Will auto-detect omnidirectional vs pinhole based on file format. For omnidirectional profiles, uses the first row of calibration data.',
+                        default=None)
     args = parser.parse_args()
 
     ifile = args.ifile
@@ -66,6 +69,39 @@ if __name__ == '__main__':
     else:
         coefficients = None
 
+    # Handle loading from a profile CSV file
+    if args.profile is not None:
+        try:
+            with open(args.profile, 'r') as f:
+                lines = f.readlines()
+                if len(lines) < 2:
+                    raise ArgusError('Profile file must have at least a header and one data line')
+                
+                header = lines[0].strip().split(',')
+                data = lines[1].strip().split(',')
+                
+                # Check if this is an omnidirectional profile (has xi column)
+                if 'xi' in header:
+                    # Omnidirectional profile: f,cx,cy,AR,s,k1,k2,t1,t2,xi,rmse
+                    # For CMei model we need: [f, width, height, cx, cy, k1, k2, t1, t2, xi]
+                    # We'll need to get width/height from the video, so for now store all params
+                    f_val = float(data[header.index('f')])
+                    cx_val = float(data[header.index('cx')])
+                    cy_val = float(data[header.index('cy')])
+                    k1_val = float(data[header.index('k1')])
+                    k2_val = float(data[header.index('k2')])
+                    t1_val = float(data[header.index('t1')])
+                    t2_val = float(data[header.index('t2')])
+                    xi_val = float(data[header.index('xi')])
+                    # Store parameters for CMei model creation (width/height will be added later)
+                    omni = [f_val, cx_val, cy_val, k1_val, k2_val, t1_val, t2_val, xi_val]
+                else:
+                    # Standard pinhole profile
+                    # Extract standard coefficients: [f, cx, cy, k1, k2, t1, t2, k3]
+                    coefficients = [float(x) for x in data[1:9]]  # Assuming standard format
+        except Exception as e:
+            raise ArgusError(f'Error loading profile file: {e}')
+
     if (args.mode != "None") and (args.model != "None"):
         dis = DistortionProfile()
         if '(Fisheye)' in args.mode:
@@ -73,8 +109,22 @@ if __name__ == '__main__':
         else:
             coefficients = dis.get_coefficients(args.model, args.mode)
 
-    if (not omni is None) or (not coefficients is None):
-        und = Undistorter(ifile, omni, coefficients, args.cmei, copy=args.copy)
+    if (omni is not None) or (coefficients is not None):
+        # For omnidirectional profiles loaded from CSV, we need to handle them specially
+        if omni is not None and len(omni) == 8:
+            # This is a CMei-style profile from our CSV: [f, cx, cy, k1, k2, t1, t2, xi]
+            # We need to add width/height from the video to create the full CMei array
+            import cv2
+            cap = cv2.VideoCapture(ifile)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            
+            # Create CMei array: [f, width, height, cx, cy, k1, k2, t1, t2, xi]
+            cmei_array = [omni[0], width, height, omni[1], omni[2], omni[3], omni[4], omni[5], omni[6], omni[7]]
+            und = Undistorter(ifile, cmei_array, None, True, copy=args.copy)  # Set CMei=True
+        else:
+            und = Undistorter(ifile, omni, coefficients, args.cmei, copy=args.copy)
         und.undistort_movie(ofile, frameint, crf, write, display, tmpName, crop)
     else:
         print(
