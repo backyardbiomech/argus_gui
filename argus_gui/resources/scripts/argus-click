@@ -981,11 +981,12 @@ def load_tsv(tsv):
 
 # main class which displays the movie's individual frames and allows users to mark points
 class ClickerWindow(pyglet.window.Window):
-    def __init__(self, movie, offsets, actual_camera_number, end, factor, last=False):
+    def __init__(self, movie, offsets, actual_camera_number, end, factor, last=False, auto_focus=False):
         
         self.initialized = False #flag to control running on_resize function
         self.actual_camera_number = actual_camera_number
         self.original_index = actual_camera_number - 1
+        self.auto_focus = auto_focus
 
         # Function for converting openCV images to pyglt compatible frames
         self.frameFinder = FrameFinder(movie, factor=factor, offset=offsets[self.original_index], rgb=rgb)
@@ -2426,7 +2427,8 @@ class ClickerWindow(pyglet.window.Window):
 
         # self.switch_to()
     def on_mouse_enter(self, x, y):
-        self.activate()
+        if self.auto_focus:
+            self.activate()
         
     def on_activate(self):
         self.safe_switch_to()
@@ -3402,6 +3404,7 @@ class ClickerWindow(pyglet.window.Window):
         D               - Delete point at current frame/track
         O               - Open options/settings dialog
         X               - Toggle window synchronization
+        Ctrl+A          - Toggle auto-focus on mouse enter for all windows
         
         3D VISUALIZATION:
         ----------------
@@ -3623,6 +3626,13 @@ class ClickerWindow(pyglet.window.Window):
                 sync = True
             self.update_all_windows()
             self.toggleBusy()
+        # toggle auto-focus for all windows
+        elif symbol == key.A and modifiers & key.MOD_CTRL:
+            # Toggle auto-focus for all windows
+            for window in pyglet.app.windows:
+                if hasattr(window, 'auto_focus'):
+                    window.auto_focus = not window.auto_focus
+            print(f"Auto-focus {'enabled' if self.auto_focus else 'disabled'} for all windows")
         # skip to next marked point
         elif symbol == key.RIGHT:
             for k in range(self.current_point_index, self.points[current_track_global].shape[0]):
@@ -4055,6 +4065,23 @@ def load_from_config(path):
             useable_offsets.append(offset)
 
         loaded_end = int(cv2.VideoCapture(loaded_movies[0]).get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Optional auto-focus setting (default False)
+        auto_focus = False
+        if len(project) > 8:
+            try:
+                auto_focus_config = project[8]
+                if isinstance(auto_focus_config, dict) and "auto_focus" in auto_focus_config:
+                    auto_focus = bool(auto_focus_config["auto_focus"])
+                elif isinstance(auto_focus_config, (bool, str)):
+                    if isinstance(auto_focus_config, str):
+                        auto_focus = auto_focus_config.lower() in ('true', '1', 'yes', 'on')
+                    else:
+                        auto_focus = auto_focus_config
+            except Exception as e:
+                print(f"Warning: Could not parse auto_focus setting, using default (False): {e}")
+                auto_focus = False
+                
     except (KeyError, IndexError, TypeError) as e:
         print(f"Error parsing config file structure: {e}")
         return
@@ -4068,7 +4095,7 @@ def load_from_config(path):
         try:
             if index != len(loaded_movies) - 1:
                 mov = ClickerWindow(movie, offsets=useable_offsets, actual_camera_number=index + 1, end=loaded_end,
-                                  factor=loaded_res)
+                                  factor=loaded_res, auto_focus=auto_focus)
                 mov.go_to_frame(frame_number)
 
                 windows.append(mov)
@@ -4076,7 +4103,7 @@ def load_from_config(path):
             else:
                 mov = ClickerWindow(movie, offsets=useable_offsets, actual_camera_number=index + 1, end=loaded_end,
                                              factor=loaded_res,
-                                             last=True)
+                                             last=True, auto_focus=auto_focus)
                 mov.go_to_frame(frame_number)
                 windows.append(mov)
         except Exception as e:
@@ -4186,18 +4213,23 @@ if __name__ == '__main__':
         movies = movies_global
         offsets = list(map(int, sys.argv[3].split('@')))
         factor = int(sys.argv[4])
+        
+        # Optional 5th argument for auto-focus (default False)
+        auto_focus = False
+        if len(sys.argv) > 5:
+            auto_focus = sys.argv[5].lower() in ('true', '1', 'yes', 'on')
 
         windows = []
         for index, movie in enumerate(movies):
             try:
                 if index != len(movies) - 1:
-                    curWindow = ClickerWindow(movie, offsets=offsets, actual_camera_number=index + 1, end=end, factor=factor)
+                    curWindow = ClickerWindow(movie, offsets=offsets, actual_camera_number=index + 1, end=end, factor=factor, auto_focus=auto_focus)
                     windows.append(curWindow)
                     if offsets[index] != 0 and offsets[index] < 0:
                         curWindow.go_to_frame(1 + np.abs(offsets[index]))
                 else:
                     curWindow = ClickerWindow(movie, offsets=offsets, actual_camera_number=index + 1, end=end, factor=factor,
-                                              last=True)
+                                              last=True, auto_focus=auto_focus)
 
                     windows.append(curWindow)
                     if offsets[index] != 0 and offsets[index] < 0:       
