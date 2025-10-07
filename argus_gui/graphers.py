@@ -577,10 +577,9 @@ def rigid_transform_3D(A, B):
 
     # special reflection case
     if linalg.det(R) < 0:
-        print('Reflection detected - likely due to an underlying left-handed coordinate system')
-        # do nothing (commented the below lines out on 2020-05-26)
-        #Vt[2, :] *= -1
-        #R = Vt.T.dot(U.T)
+        print('Reflection detected - correcting to ensure proper right-handed coordinate system')
+        Vt[2, :] *= -1
+        R = Vt.T.dot(U.T)
     t = -R.dot(centroid_A.T) + centroid_B.T
 
     return R, t
@@ -709,8 +708,18 @@ class wandGrapher(QWidget):
             print('Using 3-point (origin,+x,+y) reference axes')        
             A = ref
 
+            # Ensure proper right-hand coordinate system: z = x × y
+            x_axis = A[1]  # +x direction vector
+            y_axis = A[2]  # +y direction vector
+            z_axis = np.cross(x_axis, y_axis)  # z = x × y for right-hand rule
+            
+            # Invert the z-axis to match expected coordinate system orientation
+            z_axis = -z_axis
+            
+            z_axis = z_axis / np.linalg.norm(z_axis)  # normalize
+            
             # define an Nx4 matrix containing origin (same in both), a point on the x axis, a point on the y axis, and a point on z
-            A = np.vstack((A, np.cross(A[1], A[2]) / np.linalg.norm(np.cross(A[1], A[2]))))
+            A = np.vstack((A, z_axis))
 
             # define the same points in our coordinate system
             B = np.zeros((4, 3))
@@ -811,6 +820,14 @@ class wandGrapher(QWidget):
                 vh = np.matmul(vh,r180)
                 rCentered = np.matmul(centered,vh)
 
+            # Set the origin at the center of reference points
+            ref_coords_in_rcentered = rCentered[:len(ref), :]
+            avg_ref_actual = np.mean(ref_coords_in_rcentered, axis=0)
+            
+            rCentered[:, 0] -= avg_ref_actual[0]
+            rCentered[:, 1] -= avg_ref_actual[1]
+            rCentered[:, 2] -= avg_ref_actual[2]
+            
             ret = rCentered
 
         return ret
@@ -1014,6 +1031,7 @@ class wandGrapher(QWidget):
             xyzs = self.transform(xyzs, xyzs[:self.nRef, :])
             ref = xyzs[:self.nRef, :] # transformed reference points
 
+
         else:
             print('No reference points available - centering the calibration on the mean point location.')
             ref = None
@@ -1123,9 +1141,22 @@ class wandGrapher(QWidget):
             scatter.setGLOptions('translucent')
             self.view.addItem(scatter)
 
-        # Get the camera locations as expressed in the DLT coefficients
+        # Get camera positions from DLT coefficients but apply z-offset to match plane transformation
         camXYZ = DLTtoCamXYZ(dlts)
-        plotcamXYZ = np.array(camXYZ).reshape(-1, 3)  # Ensure camXYZ is a 2D array of shape (n_points, 3)
+        plotcamXYZ = np.array(camXYZ).reshape(-1, 3)
+        
+        # Transform camera coordinates to match the transformed point cloud
+        if self.ref is not None and ref is not None:
+            plotcamXYZ[:, 2] = plotcamXYZ[:, 2] - np.mean(plotcamXYZ[:, 2]) + np.mean(ref[:, 2]) - 600
+        elif self.ref is not None:
+            original_xyzs = np.loadtxt(self.temp + '/' + self.key + '_np.txt')
+            original_ref_points = original_xyzs[:self.nRef, :]
+            
+            try:
+                transformed_cameras = self.transform(plotcamXYZ, original_ref_points)
+                plotcamXYZ = transformed_cameras
+            except Exception:
+                plotcamXYZ[:, 2] = -plotcamXYZ[:, 2]
         scatter = gl.GLScatterPlotItem(pos=plotcamXYZ, color=(0, 1, 0, 1), size=10)  # Green color, larger markers
         scatter.setGLOptions('translucent')
         self.view.addItem(scatter)
