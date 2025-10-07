@@ -1145,18 +1145,7 @@ class wandGrapher(QWidget):
         camXYZ = DLTtoCamXYZ(dlts)
         plotcamXYZ = np.array(camXYZ).reshape(-1, 3)
         
-        # Transform camera coordinates to match the transformed point cloud
-        if self.ref is not None and ref is not None:
-            plotcamXYZ[:, 2] = plotcamXYZ[:, 2] - np.mean(plotcamXYZ[:, 2]) + np.mean(ref[:, 2]) - 600
-        elif self.ref is not None:
-            original_xyzs = np.loadtxt(self.temp + '/' + self.key + '_np.txt')
-            original_ref_points = original_xyzs[:self.nRef, :]
-            
-            try:
-                transformed_cameras = self.transform(plotcamXYZ, original_ref_points)
-                plotcamXYZ = transformed_cameras
-            except Exception:
-                plotcamXYZ[:, 2] = -plotcamXYZ[:, 2]
+        # Camera positions from transformed DLT coefficients are already in the correct coordinate system
         scatter = gl.GLScatterPlotItem(pos=plotcamXYZ, color=(0, 1, 0, 1), size=10)  # Green color, larger markers
         scatter.setGLOptions('translucent')
         self.view.addItem(scatter)

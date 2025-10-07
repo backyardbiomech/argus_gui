@@ -629,20 +629,7 @@ class OutlierWindow(QtWidgets.QWidget):
         camXYZ = DLTtoCamXYZ(self.dlts)
         plotcamXYZ = np.array(camXYZ).reshape(-1, 3)
         
-        # Transform camera coordinates to match the transformed point cloud
-        if self.refBool and hasattr(self, 'ref'):
-            if self.reference_type == 'Plane':
-                plotcamXYZ[:, 2] = plotcamXYZ[:, 2] - np.mean(plotcamXYZ[:, 2]) + np.mean(self.ref[:, 2]) - 600
-                
-            elif self.reference_type == 'Axis points':
-                original_xyzs = np.loadtxt(self.temp + '/' + self.key + '_np.txt')
-                original_ref_points = original_xyzs[:self.nRef, :]
-                
-                try:
-                    transformed_cameras = self.transform(plotcamXYZ, original_ref_points)
-                    plotcamXYZ = transformed_cameras
-                except Exception:
-                    plotcamXYZ[:, 2] = -plotcamXYZ[:, 2]
+        # Camera positions from transformed DLT coefficients are already in the correct coordinate system
         
         scatter = gl.GLScatterPlotItem(pos=plotcamXYZ, color=(0, 1, 0, 1), size=20)  # Green color, larger markers
         scatter.setGLOptions('translucent')
@@ -761,6 +748,16 @@ class OutlierWindow(QtWidgets.QWidget):
         self.dlts = np.asarray(dlts)
         errs = np.asarray(errs)
         self.dlterrors = errs
+        
+        # Apply coordinate system transformation to DLT coefficients if needed
+        if self.refBool and self.reference_type == 'Axis points':
+            # For axis points with z-inversion, modify DLT coefficients to account for coordinate transformation
+            # DLT coefficients L3, L7, L11 relate to Z coordinate, so we need to negate them
+            for i in range(len(self.dlts)):
+                self.dlts[i][2] = -self.dlts[i][2]   # L3: X*Z coefficient  
+                self.dlts[i][6] = -self.dlts[i][6]   # L7: Y*Z coefficient
+                self.dlts[i][10] = -self.dlts[i][10] # L11: Z coefficient
+        
         #print errors and wand score to the log
         self.outputDLT(self.dlts, errs)
         sys.stdout.flush()
