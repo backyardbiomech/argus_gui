@@ -643,8 +643,6 @@ class OutlierWindow(QtWidgets.QWidget):
                     plotcamXYZ = transformed_cameras
                 except Exception:
                     plotcamXYZ[:, 2] = -plotcamXYZ[:, 2]
-            
-        print(f"DEBUG: Camera positions: {plotcamXYZ}")
         
         scatter = gl.GLScatterPlotItem(pos=plotcamXYZ, color=(0, 1, 0, 1), size=20)  # Green color, larger markers
         scatter.setGLOptions('translucent')
