@@ -84,19 +84,35 @@ if __name__ == "__main__":
     for replicate in range(replicates):
         print("Getting {0} replicate calibration".format(argus.num2ordinal(replicate + 1)))
         sys.stdout.flush()
-        if not args.omnidirectional:
-            if calibrator.get_initial():
-                if calibrator.refine(flags=argus.FIRSTPASS):
-                    if calibrator.refine(flags=argus.SECONDPASS):
-                        if doFourth:
-                            calibrator.refine(flags=argus.THIRDPASS)
-                        if doThird:
-                            calibrator.refine(flags=argus.FOURTHPASS)
-                        results.append(calibrator.camera)
-        else:
-            # just the initial calibration for now which includes all relevant distortion coefficients
-            if calibrator.get_initial():
-                results.append(calibrator.camera)
+        try:
+            if not args.omnidirectional:
+                if calibrator.get_initial():
+                    if calibrator.refine(flags=argus.FIRSTPASS):
+                        if calibrator.refine(flags=argus.SECONDPASS):
+                            if doFourth:
+                                calibrator.refine(flags=argus.THIRDPASS)
+                            if doThird:
+                                calibrator.refine(flags=argus.FOURTHPASS)
+                            results.append(calibrator.camera)
+            else:
+                # just the initial calibration for now which includes all relevant distortion coefficients
+                if calibrator.get_initial():
+                    results.append(calibrator.camera)
+        except Exception as e:
+            print("Warning: Replicate {0} failed with error: {1}".format(replicate + 1, str(e)))
+            print("Continuing with next replicate...")
+            continue
+
+    # Check if we have any successful calibrations
+    if len(results) == 0:
+        print("Error: No successful calibrations obtained!")
+        print("This could be due to:")
+        print("1. Poor pattern detection - check your input file")
+        print("2. Insufficient patterns - try using more patterns")
+        print("3. Pattern orientation issues - try --inverted flag")
+        sys.exit(1)
+    
+    print("Successfully obtained {0} calibrations out of {1} attempts".format(len(results), replicates))
 
     # output, compute and output stats
     if ofile is None:

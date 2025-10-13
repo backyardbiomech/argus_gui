@@ -667,6 +667,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dwarp_file_button = QtWidgets.QPushButton("Select movie file")
         self.dwarp_file_button.clicked.connect(self.add)
         self.dwarp_file = QtWidgets.QLineEdit()
+        
+        # Add camera profile load button
+        self.dwarp_load_profile_button = QtWidgets.QPushButton("Load camera profile")
+        self.dwarp_load_profile_button.clicked.connect(self.load_camera_profile)
+        self.dwarp_load_profile_button.setToolTip("Load camera profile from Calibrate tab output")
 
         # create and fill the camera model and shooting mode drop down menus from the calibrations files
         self.calibFiles = list()
@@ -813,14 +818,15 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(dwarp_info_label, 0, 0, 1, 4)
         layout.addWidget(self.dwarp_file_button, 1, 0)
         layout.addWidget(self.dwarp_file, 1, 1, 1, 3)
-        layout.addWidget(param_box, 2, 0, 3, 4)
-        layout.addWidget(out_box, 6, 0, 1, 2)
-        layout.addWidget(mov_box, 6, 2, 1, 2)
-        layout.addWidget(self.dwarp_onam_label, 7, 0)
-        layout.addWidget(self.dwarp_onam_button, 8, 0)
-        layout.addWidget(self.dwarp_onam, 8, 1, 1, 3)
-        layout.addWidget(self.dwarp_log, 9, 0)
-        layout.addWidget(self.dwarp_go_button, 9, 3)
+        layout.addWidget(self.dwarp_load_profile_button, 2, 0)
+        layout.addWidget(param_box, 3, 0, 3, 4)
+        layout.addWidget(out_box, 7, 0, 1, 2)
+        layout.addWidget(mov_box, 7, 2, 1, 2)
+        layout.addWidget(self.dwarp_onam_label, 8, 0)
+        layout.addWidget(self.dwarp_onam_button, 9, 0)
+        layout.addWidget(self.dwarp_onam, 9, 1, 1, 3)
+        layout.addWidget(self.dwarp_log, 10, 0)
+        layout.addWidget(self.dwarp_go_button, 10, 3)
         # layout.addWidget(self.dwarp_quit_button, 11, 0)
         # layout.addWidget(self.dwarp_about_button, 11, 5)
 
@@ -1668,10 +1674,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 ret = ",".join(co)
                 return ret
             else:
+                # Use video dimensions if available, otherwise default values
+                width = getattr(self, 'video_width', 1920)
+                height = getattr(self, 'video_height', 1080)
                 co = [
                     self.dwarp_fl.text(),
-                    str(self.width),
-                    str(self.height),
+                    str(width),
+                    str(height),
                     self.dwarp_cx.text(),
                     self.dwarp_cy.text(),
                     self.dwarp_k1.text(),
@@ -1691,7 +1700,160 @@ class MainWindow(QtWidgets.QMainWindow):
             self.models[self.dwarp_models.currentText()][self.dwarp_modes.currentText()]
         )
 
+    def load_camera_profile(self):
+        """Load camera profile from Calibrate tab output and populate Dwarp fields"""
+        file_dialog = QtWidgets.QFileDialog(self, "Select camera profile file", self.current_directory)
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFile)
+        file_dialog.setNameFilter("Profile files (*.txt *.csv);;All files (*)")
+        
+        if file_dialog.exec():
+            file_name = file_dialog.selectedFiles()[0]
+            self.current_directory = QtCore.QFileInfo(file_name).absolutePath()
+            
+            try:
+                self.parse_and_load_profile(file_name)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "Error loading profile", 
+                    f"Failed to load camera profile:\n{str(e)}"
+                )
+
+    def parse_and_load_profile(self, file_path):
+        """Parse camera profile file and populate Dwarp coefficients"""
+        import numpy as np
+        
+        try:
+            # Try to load as space-delimited text file first (standard profile format)
+            camera_profile = np.loadtxt(file_path)
+            
+            # Handle single row vs multiple rows
+            if camera_profile.ndim == 1:
+                profile_data = camera_profile
+            else:
+                # If multiple cameras, use the first one
+                profile_data = camera_profile[0]
+                
+            # Expected format: [camera_num, focal_length, image_width, image_height, cx, cy, aspect_ratio, k1, k2, t1, t2, k3]
+            if len(profile_data) >= 12:
+                # Extract coefficients (matching the profile format from argus-calibrate)
+                focal_length = profile_data[1]
+                cx = profile_data[4]  
+                cy = profile_data[5]
+                k1 = profile_data[7]  # r2 in profile = k1 in dwarp
+                k2 = profile_data[8]  # r4 in profile = k2 in dwarp  
+                t1 = profile_data[9]
+                t2 = profile_data[10]
+                k3 = profile_data[11] if len(profile_data) > 11 else 0.0
+                
+                # Populate the Dwarp fields
+                self.dwarp_fl.setText(str(focal_length))
+                self.dwarp_cx.setText(str(cx))
+                self.dwarp_cy.setText(str(cy))
+                self.dwarp_k1.setText(str(k1))
+                self.dwarp_k2.setText(str(k2))
+                self.dwarp_t1.setText(str(t1))
+                self.dwarp_t2.setText(str(t2))
+                self.dwarp_k3.setText(str(k3))
+                self.dwarp_xi.setText("1.0")  # Default for pinhole model
+                
+                # Enable all fields
+                self.enableEntries()
+                
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Profile Loaded",
+                    f"Camera profile loaded successfully from:\n{file_path}"
+                )
+                
+            else:
+                raise ValueError(f"Invalid profile format. Expected at least 12 columns, got {len(profile_data)}")
+                
+        except Exception as e:
+            # Try CSV format if text loading fails
+            try:
+                import pandas as pd
+                df = pd.read_csv(file_path)
+                
+                # This might be a calibrations.csv file from Calibrate tab
+                if len(df) > 0:
+                    # Use the first row (best calibration)
+                    row = df.iloc[0]
+                    
+                    # Check if this is an omnidirectional profile (has xi column)
+                    if 'xi' in df.columns:
+                        # Omnidirectional profile: f,cx,cy,AR,s,k1,k2,t1,t2,xi,rmse
+                        focal_length = row.get('f', 1000)
+                        cx = row.get('cx', 0)
+                        cy = row.get('cy', 0)
+                        k1 = row.get('k1', 0)
+                        k2 = row.get('k2', 0)
+                        t1 = row.get('t1', 0)
+                        t2 = row.get('t2', 0)
+                        k3 = 0  # Not used in omnidirectional
+                        xi = row.get('xi', 1.0)
+                        
+                        # Set the mode to CMei for omnidirectional
+                        mode_idx = self.dwarp_modes.findText("CMei", QtCore.Qt.MatchFlag.MatchContains)
+                        if mode_idx >= 0:
+                            self.dwarp_modes.setCurrentIndex(mode_idx)
+                    else:
+                        # Standard pinhole profile - extract coefficients with column name variations
+                        focal_length = row.get('fx', row.get('focal_length', row.get('f', 1000)))
+                        cx = row.get('cx', row.get('px', 0))
+                        cy = row.get('cy', row.get('py', 0))
+                        k1 = row.get('k1', row.get('r2', 0))
+                        k2 = row.get('k2', row.get('r4', 0))
+                        t1 = row.get('t1', 0)
+                        t2 = row.get('t2', 0)
+                        k3 = row.get('k3', row.get('r6', 0))
+                        xi = 1.0  # Default for pinhole
+                    
+                    # Populate the Dwarp fields
+                    self.dwarp_fl.setText(str(focal_length))
+                    self.dwarp_cx.setText(str(cx))
+                    self.dwarp_cy.setText(str(cy))
+                    self.dwarp_k1.setText(str(k1))
+                    self.dwarp_k2.setText(str(k2))
+                    self.dwarp_t1.setText(str(t1))
+                    self.dwarp_t2.setText(str(t2))
+                    self.dwarp_k3.setText(str(k3))
+                    self.dwarp_xi.setText(str(xi))
+                    
+                    # For omnidirectional profiles, we need to set width/height from video when dwarp runs
+                    # These will be updated in dwarp_go() when the video file is opened
+                    
+                    self.enableEntries()
+                    
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        "Profile Loaded",
+                        f"Camera profile loaded from CSV (first calibration result):\n{file_path}"
+                    )
+                else:
+                    raise ValueError("CSV file is empty")
+                    
+            except Exception as csv_error:
+                raise Exception(f"Could not parse file as profile format or CSV: {str(e)}, CSV error: {str(csv_error)}")
+
     def dwarp_go(self):
+        # Extract video dimensions for CMei models before processing
+        video_file = self.dwarp_file.text()
+        if video_file and "(CMei)" in self.dwarp_modes.currentText():
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_file)
+                self.video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                self.video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "Video Error", 
+                    f"Could not read video dimensions: {str(e)}"
+                )
+                return
+        
         of = self.dwarp_onam.text()
         # check for properly named output file (if it exists) & fix it if appropriate
         if of != "":

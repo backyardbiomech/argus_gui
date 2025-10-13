@@ -11,7 +11,7 @@ Updated: 2025-06-30, tested on Windows 11 and MacOS 15.5
 
 Read the [full documentation](docs/index.md).
 
-Find our origingal website at [https://argus.web.unc.edu](https://argus.web.unc.edu).
+Find our original website at [https://argus.web.unc.edu](https://argus.web.unc.edu).
 
 ### How do I get set up?
 
@@ -64,9 +64,15 @@ Then run: `argus-gui`
 
 **Troubleshooting:** 
 
-- If during use you encounter an error related to `cv2` or `opencv`, you can try installing the contrib package:
+- If during use you encounter an error related to `cv2` or `opencv`, or if omnidirectional calibration fails with `INITIAL_FISHEYE` not defined, you need the contrib package:
   ```bash
+  # With pip:
+  pip uninstall opencv-python
   pip install opencv-contrib-python
+  
+  # With uv:
+  uv pip uninstall opencv-python
+  uv pip install opencv-contrib-python
   ```
 
 - If you (especially on Windows) encounter an error related to `ffmpeg`, or `ffplay`, download the latest version of `ffmpeg` add it to your system's PATH using <a href="https://www.wikihow.com/Install-FFmpeg-on-Windows" target="_blank">these instructions</a>.

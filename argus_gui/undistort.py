@@ -50,7 +50,7 @@ from subprocess import Popen, PIPE
 
 def array2image(a):
     mode = "L"
-    return Image.frombytes(mode, (a.shape[1], a.shape[0]), a.tostring())
+    return Image.frombytes(mode, (a.shape[1], a.shape[0]), a.tobytes())
 
 
 """
@@ -180,6 +180,8 @@ class Undistorter(object):
             tmp = tempfile.mkdtemp()
         else:
             tmp = tmp_dir
+            # Ensure the provided tmp directory exists
+            os.makedirs(tmp, exist_ok=True)
 
         # print(tmp)
         if display:
@@ -312,7 +314,7 @@ class Undistorter(object):
                     QApplication.processEvents()
 
                 if write:
-                    p.stdin.write(undistorted.tostring())
+                    p.stdin.write(undistorted.tobytes())
 
                 if a % 5 == 0:
                     print('\n', end='')
@@ -320,7 +322,7 @@ class Undistorter(object):
             else:
                 if write:
                     print("Could not read frame number: " + str(a) + "\n writing blank frame")
-                    p.stdin.write(np.zeros_like(previous).tostring())
+                    p.stdin.write(np.zeros_like(previous).tobytes())
                     sys.stdout.flush()
                 else:
                     print("Could not read frame number: " + str(a))
