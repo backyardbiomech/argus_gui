@@ -5,7 +5,7 @@ from __future__ import absolute_import
 from .version import __version__
 
 # Export public API
-__all__ = ['__version__', 'resources', 'ArgusColors', 'FrameFinder', 'ClickerProject', 'MainWindow']
+__all__ = ['__version__', 'resources', 'ArgusColors', 'FrameFinder', 'ClickerProject', 'MainWindow', 'sbaArgusDriver']
 
 # load submodules conditionally to avoid import errors during module discovery
 try:
@@ -14,7 +14,7 @@ try:
     from .logger import *
     from .output import *
     from .patterns import *
-    from .sbaDriver import *
+    from .sbaDriver import sbaArgusDriver, OutlierWindow
     from .sync import *
     from .tools import *
     from .triangulate import *

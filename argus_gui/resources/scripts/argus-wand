@@ -8,6 +8,36 @@ import argparse
 import shutil
 import sys
 import tempfile
+import os
+
+# Fix sys.path to prevent importing from source tree
+# The script is located deep within the argus_gui source tree, and Python adds parent
+# directories to sys.path which causes namespace package conflicts
+script_dir = os.path.dirname(os.path.abspath(__file__)).lower()
+
+# Remove any paths that would lead to finding the source argus_gui directory
+paths_to_remove = []
+for p in sys.path[:]:
+    abs_p = os.path.abspath(p).lower()
+    # Remove if argus_gui appears in this path
+    if 'argus_gui' in abs_p:
+        paths_to_remove.append(p)
+    # Remove if this is a parent directory of our script (part of source tree)
+    elif script_dir.startswith(abs_p):
+        paths_to_remove.append(p)
+
+for p in paths_to_remove:
+    if p in sys.path:
+        sys.path.remove(p)
+
+# Now make sure site-packages is first
+import site
+for sp in site.getsitepackages():
+    if sp not in sys.path:
+        sys.path.insert(0, sp)
+    elif sys.path.index(sp) > 0:
+        sys.path.remove(sp)
+        sys.path.insert(0, sp)
 
 import numpy as np
 import pandas
