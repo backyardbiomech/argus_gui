@@ -70,6 +70,8 @@ from PySide6.QtCore import QStandardPaths
 
 # from argus_gui import Logger
 
+__all__ = ['MainWindow', 'ClickerProject']
+
 # Ensure the package is available
 try:
     # Use the newer files() API instead of deprecated path()
@@ -976,6 +978,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_dialog.setNameFilter(filter)
 
         # Show the file dialog and get the selected file path
+        file_name = None
         if file_dialog.exec():
             file_name = file_dialog.selectedFiles()[0]
 
