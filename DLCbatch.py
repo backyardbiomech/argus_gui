@@ -160,8 +160,21 @@ class DLCBatchProcessor:
             print(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
             
             try:
-                # Load H5 file
-                df = pd.read_hdf(h5_file, key='df_with_missing')
+                # Load H5 file - try common DLC keys
+                df = None
+                common_keys = ['df_with_missing', 'df']  # Common DLC HDF5 keys
+                
+                for key in common_keys:
+                    try:
+                        df = pd.read_hdf(h5_file, key=key)
+                        break  # Successfully loaded
+                    except KeyError:
+                        continue  # Try next key
+                
+                if df is None:
+                    # No valid data found, skip this file silently
+                    continue
+                
                 scorer_name = df.columns.get_level_values('scorer')[0]
                 
                 # Get track names from first file
@@ -184,7 +197,18 @@ class DLCBatchProcessor:
                 if is_multi_animal:
                     # Multi-animal DLC - for now, just handle single animal case
                     print("    Multi-animal DLC detected - using first individual")
-                    individuals = df.columns.get_level_values('individual').unique().tolist()
+                    
+                    # Find the individual/animal level name (could be 'individual', 'individuals', or 'animal')
+                    individual_level = None
+                    for level_name in df.columns.names:
+                        if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                            individual_level = level_name
+                            break
+                    
+                    if individual_level is None:
+                        raise ValueError("Could not find individual/animal level in multi-animal DLC data")
+                    
+                    individuals = df.columns.get_level_values(individual_level).unique().tolist()
                     individual = individuals[0]
                     cam_data = df[scorer_name][individual]
                 else:
