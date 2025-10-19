@@ -40,9 +40,10 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95):
+    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
+        self.optimize_cameras = optimize_cameras
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
@@ -306,14 +307,174 @@ class DLCBatchProcessor:
                             valid_likelihoods.append(likelihood)
                             n_valid_cams += 1
                 
-                if valid_likelihoods:
+                # Only record scores and ncams if we have at least 2 cameras
+                # Single camera frames cannot be triangulated and will have NaN xyz
+                if n_valid_cams >= 2:
                     scores[frame, track_idx] = np.mean(valid_likelihoods)
                     ncams[frame, track_idx] = n_valid_cams
         
         return scores, ncams
     
-    def _perform_3d_reconstruction(self, pts_data, track_names):
-        """Perform 3D reconstruction using uv_to_xyz."""
+    def _reconstruct_with_camera_optimization(self, track_pts, track_name):
+        """Reconstruct 3D coordinates with frame-by-frame outlier camera detection.
+        
+        For frames with 3+ cameras, detects cameras with significantly higher
+        reprojection error (outliers) and excludes them from reconstruction.
+        This handles cases where one camera has bad tracking despite passing
+        the likelihood threshold.
+        
+        Args:
+            track_pts: Frames x (2*n_cameras) array of pixel coordinates for one track
+            track_name: Name of the track being processed
+            
+        Returns:
+            xyz: Frames x 3 array of optimized 3D coordinates
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        n_cameras = len(self.camera_profile)
+        n_frames = track_pts.shape[0]
+        xyz_optimized = np.full((n_frames, 3), np.nan)
+        
+        # Track optimization statistics
+        n_optimized = 0  # frames where outlier camera(s) were excluded
+        
+        # Process each frame independently
+        for frame_idx in range(n_frames):
+            frame_pts = track_pts[frame_idx, :]
+            
+            # Find which cameras have valid data for this frame
+            valid_cameras = []
+            for cam_idx in range(n_cameras):
+                pt = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+                if not np.any(np.isnan(pt)):
+                    valid_cameras.append(cam_idx)
+            
+            n_valid = len(valid_cameras)
+            
+            if n_valid < 2:
+                # Can't triangulate with fewer than 2 cameras
+                continue
+            elif n_valid == 2:
+                # Only one option, use these 2 cameras
+                cam_subset = valid_cameras
+                xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                    frame_pts, cam_subset, track_pts[frame_idx:frame_idx+1, :]
+                )
+            else:
+                # 3+ cameras: detect outlier cameras and exclude them
+                # Default to using all cameras
+                xyz_all = self._reconstruct_single_frame(frame_pts, valid_cameras, track_pts[frame_idx:frame_idx+1, :])
+                
+                if np.any(np.isnan(xyz_all)):
+                    continue
+                
+                # Calculate per-camera reprojection errors for all-camera reconstruction
+                per_cam_errors = self._get_per_camera_errors(xyz_all, frame_pts, valid_cameras)
+                
+                # Check if any camera is an outlier (significantly worse than others)
+                # Use median absolute deviation to detect outliers
+                if len(per_cam_errors) >= 3:
+                    median_error = np.median(per_cam_errors)
+                    mad = np.median(np.abs(per_cam_errors - median_error))
+                    
+                    # Identify outlier cameras (error > median + 2*MAD)
+                    # Only exclude if the outlier is significantly bad
+                    threshold = median_error + 2 * max(mad, 0.5)  # At least 0.5 pixel threshold
+                    outlier_indices = [i for i, err in enumerate(per_cam_errors) if err > threshold]
+                    
+                    if outlier_indices and len(valid_cameras) - len(outlier_indices) >= 2:
+                        # Exclude outlier camera(s) and reconstruct
+                        good_cameras = [valid_cameras[i] for i in range(len(valid_cameras)) 
+                                       if i not in outlier_indices]
+                        xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                            frame_pts, good_cameras, track_pts[frame_idx:frame_idx+1, :]
+                        )
+                        n_optimized += 1
+                    else:
+                        # No significant outliers, use all cameras
+                        xyz_optimized[frame_idx] = xyz_all
+                else:
+                    # Not enough cameras to detect outliers, use all
+                    xyz_optimized[frame_idx] = xyz_all
+        
+        # Print optimization summary
+        n_multi_cam = np.sum([len([c for c in range(n_cameras) 
+                                    if not np.any(np.isnan(track_pts[i, c*2:(c+1)*2]))]) >= 3 
+                              for i in range(n_frames)])
+        if n_multi_cam > 0:
+            print(f"      {track_name}: {n_optimized}/{n_multi_cam} frames had outlier camera(s) excluded")
+        
+        return xyz_optimized
+    
+    def _get_per_camera_errors(self, xyz, frame_pts, cam_indices):
+        """Calculate reprojection error for each camera individually.
+        
+        Args:
+            xyz: (3,) array of 3D coordinates
+            frame_pts: (2*n_cameras,) array of pixel coordinates
+            cam_indices: List of camera indices to calculate errors for
+            
+        Returns:
+            errors: List of reprojection errors (in pixels) for each camera
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        errors = []
+        for cam_idx in cam_indices:
+            pt_observed = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+            if np.any(np.isnan(pt_observed)):
+                errors.append(np.inf)  # Mark missing data as infinite error
+                continue
+            
+            # Undistort observed point
+            pt_undist = undistort_pts(np.array([pt_observed]), self.camera_profile[cam_idx])[0]
+            
+            # Reproject 3D point back to this camera
+            pt_reproj = reconstruct_uv(self.dlt_coefficients[cam_idx], xyz)
+            
+            # Calculate reprojection error in pixels
+            error = np.sqrt((pt_undist[0] - pt_reproj[0])**2 + (pt_undist[1] - pt_reproj[1])**2)
+            errors.append(error)
+        
+        return np.array(errors)
+    
+    def _reconstruct_single_frame(self, frame_pts, cam_indices, pts_subset):
+        """Reconstruct 3D point from a subset of cameras for a single frame.
+        
+        Args:
+            frame_pts: (2*n_cameras,) array of pixel coordinates for one frame
+            cam_indices: List of camera indices to use
+            pts_subset: (1, 2*n_cameras) array (for compatibility)
+            
+        Returns:
+            xyz: (3,) array of 3D coordinates
+        """
+        # Build subset of profiles and DLT coefficients
+        if isinstance(self.camera_profile, list):
+            prof_subset = [self.camera_profile[i] for i in cam_indices]
+        else:
+            prof_subset = self.camera_profile[cam_indices, :]
+        dlt_subset = self.dlt_coefficients[cam_indices, :]
+        
+        # Build pts array for just these cameras
+        pts_for_recon = np.full((1, 2 * len(cam_indices)), np.nan)
+        for new_idx, cam_idx in enumerate(cam_indices):
+            pts_for_recon[0, new_idx * 2:(new_idx + 1) * 2] = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+        
+        # Reconstruct
+        xyz = uv_to_xyz(pts_for_recon, prof_subset, dlt_subset)
+        return xyz[0] if len(xyz) > 0 else np.full(3, np.nan)
+    
+    def _perform_3d_reconstruction(self, pts_data, track_names, optimize_camera_selection=True):
+        """Perform 3D reconstruction using uv_to_xyz.
+        
+        Args:
+            pts_data: Frame x (2*cameras*tracks) array of pixel coordinates
+            track_names: List of track names
+            optimize_camera_selection: If True, test 2-camera combinations when 3+ cameras available
+                                      and use the combination with lowest reprojection error
+        """
         n_tracks = len(track_names)
         max_frames = pts_data.shape[0]
         
@@ -329,8 +490,12 @@ class DLCBatchProcessor:
             track_pts = pts_data[:, track_idx * 2 * len(self.camera_profile):(track_idx + 1) * 2 * len(self.camera_profile)]
             
             try:
-                # Perform 3D reconstruction
-                xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
+                if optimize_camera_selection and len(self.camera_profile) >= 3:
+                    # Perform frame-by-frame camera optimization
+                    xyz = self._reconstruct_with_camera_optimization(track_pts, track_names[track_idx])
+                else:
+                    # Standard reconstruction using all cameras
+                    xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
                 xyz_results.append(xyz)
                 
             except Exception as e:
@@ -435,6 +600,11 @@ class DLCBatchProcessor:
         """Process all trials in the data directory."""
         trials = self._find_trials()
         
+        if self.optimize_cameras:
+            print("Camera optimization enabled: Detecting and excluding outlier cameras per frame")
+        else:
+            print("Camera optimization disabled: Using all available cameras per frame")
+        
         processed_files = []
         
         for trial_id, h5_files in trials.items():
@@ -453,7 +623,9 @@ class DLCBatchProcessor:
                 scores, ncams = self._calculate_scores_and_ncams(all_data, track_names, max_frames)
                 
                 # Perform 3D reconstruction
-                xyz_results, error_results = self._perform_3d_reconstruction(pts_data, track_names)
+                xyz_results, error_results = self._perform_3d_reconstruction(
+                    pts_data, track_names, optimize_camera_selection=self.optimize_cameras
+                )
                 
                 # Save results
                 output_file = self._save_results(trial_id, track_names, xyz_results, error_results, scores, ncams)
@@ -492,6 +664,10 @@ Output CSV columns for each track (example for 'L1hip'):
                        help='Path to directory containing videos-raw and calibration folders')
     parser.add_argument('--threshold', '-t', type=float, default=0.95,
                        help='DLC likelihood threshold (default: 0.95)')
+    parser.add_argument('--optimize-cameras', action='store_true', default=True,
+                       help='Optimize camera selection per frame (default: enabled)')
+    parser.add_argument('--no-optimize-cameras', dest='optimize_cameras', action='store_false',
+                       help='Disable camera optimization, use all cameras for each frame')
     
     args = parser.parse_args()
     
@@ -502,7 +678,11 @@ Output CSV columns for each track (example for 'L1hip'):
     
     try:
         # Create processor and run
-        processor = DLCBatchProcessor(args.data_directory, args.threshold)
+        processor = DLCBatchProcessor(
+            args.data_directory, 
+            args.threshold, 
+            optimize_cameras=args.optimize_cameras
+        )
         processor.process_all_trials()
         
     except Exception as e:
