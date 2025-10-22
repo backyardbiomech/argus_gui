@@ -7,7 +7,8 @@ This script processes DeepLabCut H5 files in batch mode, performing 3D reconstru
 and exporting results to CSV format.
 
 Usage:
-    python DLCtest.py /path/to/data/directory --threshold 0.95
+    python DLCbatch.py /path/to/data/directory --threshold 0.95
+    python DLCbatch.py /path/to/data/directory --bootstrap --bootstrap-iterations 250
 
 Directory structure expected:
 
@@ -18,6 +19,14 @@ Directory structure expected:
     
 Output:
     CSV files with columns: track_x, track_y, track_z, track_error, track_ncams, track_score
+    
+    When --bootstrap is used, additional files are generated:
+        *_xyz-cis.csv: 95% confidence interval bounds
+            Columns: track_x_lower, track_y_lower, track_z_lower, track_x_upper, track_y_upper, track_z_upper
+        *_spline-weights.csv: Bootstrap weights for spline fitting
+            Columns: track_x, track_y, track_z
+        *_spline-error-tolerances.csv: Spline error tolerances
+            Columns: track_x, track_y, track_z
 """
 
 import os
@@ -31,7 +40,7 @@ import re
 
 # Add argus_gui to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from argus_gui.tools import uv_to_xyz, get_repo_errors
+from argus_gui.tools import uv_to_xyz, get_repo_errors, bootstrapXYZs
 try:
     import argus.ocam
     ARGUS_OCAM_AVAILABLE = True
@@ -40,9 +49,14 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95):
+    def __init__(self, data_dir, likelihood_threshold=0.95, bootstrap=False, bs_iterations=250, 
+                 display_progress=False, subframe_interp=True):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
+        self.bootstrap = bootstrap
+        self.bs_iterations = bs_iterations
+        self.display_progress = display_progress
+        self.subframe_interp = subframe_interp
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
@@ -283,13 +297,17 @@ class DLCBatchProcessor:
                             n_valid_cams += 1
                 
                 if valid_likelihoods:
-                    scores[frame, track_idx] = np.mean(valid_likelihoods)
                     ncams[frame, track_idx] = n_valid_cams
+                    # Set score to 0 if we have insufficient cameras for 3D reconstruction
+                    if n_valid_cams <= 1:
+                        scores[frame, track_idx] = 0.0
+                    else:
+                        scores[frame, track_idx] = np.mean(valid_likelihoods)
         
         return scores, ncams
     
     def _perform_3d_reconstruction(self, pts_data, track_names):
-        """Perform 3D reconstruction using uv_to_xyz."""
+        """Perform 3D reconstruction using uv_to_xyz, optionally with bootstrapping."""
         n_tracks = len(track_names)
         max_frames = pts_data.shape[0]
         
@@ -315,7 +333,7 @@ class DLCBatchProcessor:
                 xyz_results.append(np.full((max_frames, 3), np.nan))
         
         # Now calculate reprojection errors for ALL tracks at once (like argus-click does)
-        # Calculate reprojection errors for all tracks at once (like argus-click does)
+        all_errors = None  # Initialize to None
         try:
             # Concatenate all XYZ data horizontally like argus-click does
             if xyz_results:
@@ -336,13 +354,40 @@ class DLCBatchProcessor:
             else:
                 # No valid reconstructions
                 error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
+                all_errors = np.full((max_frames, n_tracks), np.nan)
                 
         except Exception as e:
             print(f"    Error calculating reprojection errors: {e}")
             # Fill with NaNs if error calculation fails
             error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
+            all_errors = np.full((max_frames, n_tracks), np.nan)
         
-        return xyz_results, error_results
+        # Perform bootstrapping if requested
+        bootstrap_ci = None
+        bootstrap_weights = None
+        bootstrap_tols = None
+        
+        if self.bootstrap:
+            print("    Performing bootstrapping...")
+            try:
+                bootstrap_ci, bootstrap_weights, bootstrap_tols = bootstrapXYZs(
+                    pts_data, 
+                    all_errors,  # rmses should be (n_frames, n_tracks)
+                    self.camera_profile, 
+                    self.dlt_coefficients,
+                    bsIter=self.bs_iterations,
+                    display_progress=self.display_progress,
+                    subframeinterp=self.subframe_interp
+                )
+                print("    Bootstrapping complete")
+            except Exception as e:
+                print(f"    Error during bootstrapping: {e}")
+                # Create empty arrays on failure
+                bootstrap_ci = np.full((max_frames, 3 * n_tracks), np.nan)
+                bootstrap_weights = np.full((max_frames, 3 * n_tracks), np.nan)
+                bootstrap_tols = np.full(3 * n_tracks, np.nan)
+        
+        return xyz_results, error_results, bootstrap_ci, bootstrap_weights, bootstrap_tols
     
     def _extract_timestamp_from_trial_id(self, trial_id):
         """Extract timestamp from trial identifier for CSV filename."""
@@ -368,8 +413,9 @@ class DLCBatchProcessor:
         clean_id = trial_id.strip('_').replace('/', '-').replace('\\', '-').replace(' ', '_')
         return clean_id
     
-    def _save_results(self, trial_id, track_names, xyz_results, error_results, scores, ncams):
-        """Save results to CSV file."""
+    def _save_results(self, trial_id, track_names, xyz_results, error_results, scores, ncams,
+                     bootstrap_ci=None, bootstrap_weights=None, bootstrap_tols=None):
+        """Save results to CSV file, including bootstrap confidence intervals if available."""
         # Create output directory if it doesn't exist
         output_dir = os.path.join(self.data_dir, 'pose-3d-argus')
         os.makedirs(output_dir, exist_ok=True)
@@ -400,11 +446,72 @@ class DLCBatchProcessor:
             data_dict[f'{track_name}_ncams'] = track_ncams
             data_dict[f'{track_name}_score'] = track_scores
         
-        # Create and save DataFrame
+        # Create and save DataFrame for main results
         df = pd.DataFrame(data_dict)
         df.to_csv(output_file, index=False, na_rep='NaN')
         
         print(f"  Saved results to: {output_file}")
+        
+        # Save bootstrap data if available (matching argus-click non-sparse format, lines 2890-2920)
+        if bootstrap_ci is not None:
+            # Concatenate all xyz_results to match what was used for bootstrapping
+            xyz_all = xyz_results[0]
+            for k in range(1, len(xyz_results)):
+                xyz_all = np.hstack((xyz_all, xyz_results[k]))
+            
+            # Calculate upper and lower bounds from confidence intervals
+            upper = xyz_all + bootstrap_ci
+            lower = xyz_all - bootstrap_ci
+            
+            # Create columns in the same format as argus-click: lower then upper for each coordinate
+            cols = list()
+            for track_name in track_names:
+                cols.append(f'{track_name}_x_lower')
+                cols.append(f'{track_name}_y_lower')
+                cols.append(f'{track_name}_z_lower')
+                cols.append(f'{track_name}_x_upper')
+                cols.append(f'{track_name}_y_upper')
+                cols.append(f'{track_name}_z_upper')
+            
+            # Interleave lower and upper bounds: [x_lower, y_lower, z_lower, x_upper, y_upper, z_upper] for each track
+            ci_data = np.zeros((upper.shape[0], upper.shape[1] * 2))
+            ci_data[ci_data == 0] = np.nan
+            for k in range(int(upper.shape[1] / 3)):
+                ci_data[:, 2 * k * 3:2 * (k + 1) * 3] = np.concatenate(
+                    (lower[:, k * 3:(k + 1) * 3], upper[:, k * 3:(k + 1) * 3]), axis=1)
+            
+            # Save confidence intervals
+            ci_file = os.path.join(output_dir, f"{timestamp}_xyz-cis.csv")
+            dataf_ci = pd.DataFrame(ci_data, columns=cols)
+            dataf_ci.to_csv(ci_file, index=False, na_rep='NaN')
+            print(f"  Saved bootstrap confidence intervals to: {ci_file}")
+            
+            # Save weights if available
+            if bootstrap_weights is not None:
+                weight_cols = list()
+                for track_name in track_names:
+                    weight_cols.append(f'{track_name}_x')
+                    weight_cols.append(f'{track_name}_y')
+                    weight_cols.append(f'{track_name}_z')
+                
+                weights_file = os.path.join(output_dir, f"{timestamp}_spline-weights.csv")
+                dataf_weights = pd.DataFrame(bootstrap_weights, columns=weight_cols)
+                dataf_weights.to_csv(weights_file, index=False, na_rep='NaN')
+                print(f"  Saved spline weights to: {weights_file}")
+            
+            # Save tolerances if available
+            if bootstrap_tols is not None:
+                tol_cols = list()
+                for track_name in track_names:
+                    tol_cols.append(f'{track_name}_x')
+                    tol_cols.append(f'{track_name}_y')
+                    tol_cols.append(f'{track_name}_z')
+                
+                tols_file = os.path.join(output_dir, f"{timestamp}_spline-error-tolerances.csv")
+                dataf_tols = pd.DataFrame(np.reshape(bootstrap_tols, (1, len(tol_cols))), columns=tol_cols)
+                dataf_tols.to_csv(tols_file, index=False, na_rep='NaN')
+                print(f"  Saved spline error tolerances to: {tols_file}")
+        
         return output_file
     
     def process_all_trials(self):
@@ -429,10 +536,12 @@ class DLCBatchProcessor:
                 scores, ncams = self._calculate_scores_and_ncams(all_data, track_names, max_frames)
                 
                 # Perform 3D reconstruction
-                xyz_results, error_results = self._perform_3d_reconstruction(pts_data, track_names)
+                xyz_results, error_results, bootstrap_ci, bootstrap_weights, bootstrap_tols = \
+                    self._perform_3d_reconstruction(pts_data, track_names)
                 
                 # Save results
-                output_file = self._save_results(trial_id, track_names, xyz_results, error_results, scores, ncams)
+                output_file = self._save_results(trial_id, track_names, xyz_results, error_results, 
+                                                scores, ncams, bootstrap_ci, bootstrap_weights, bootstrap_tols)
                 processed_files.append(output_file)
                 
             except Exception as e:
@@ -461,6 +570,14 @@ Directory structure expected:
 
 Output CSV columns for each track (example for 'L1hip'):
     L1hip_x, L1hip_y, L1hip_z, L1hip_error, L1hip_ncams, L1hip_score
+
+With --bootstrap flag, additional files are generated:
+    *_xyz-cis.csv with columns:
+        L1hip_x_lower, L1hip_y_lower, L1hip_z_lower, L1hip_x_upper, L1hip_y_upper, L1hip_z_upper
+    *_spline-weights.csv with columns:
+        L1hip_x, L1hip_y, L1hip_z
+    *_spline-error-tolerances.csv with columns:
+        L1hip_x, L1hip_y, L1hip_z
         """
     )
     
@@ -468,6 +585,14 @@ Output CSV columns for each track (example for 'L1hip'):
                        help='Path to directory containing videos-raw and calibration folders')
     parser.add_argument('--threshold', '-t', type=float, default=0.95,
                        help='DLC likelihood threshold (default: 0.95)')
+    parser.add_argument('--bootstrap', '-b', action='store_true',
+                       help='Perform bootstrapping to estimate confidence intervals')
+    parser.add_argument('--bootstrap-iterations', '-i', type=int, default=250,
+                       help='Number of bootstrap iterations (default: 250)')
+    parser.add_argument('--display-progress', '-p', action='store_true',
+                       help='Display progress bars during bootstrapping')
+    parser.add_argument('--no-subframe-interp', action='store_true',
+                       help='Disable subframe interpolation during bootstrapping')
     
     args = parser.parse_args()
     
@@ -478,7 +603,14 @@ Output CSV columns for each track (example for 'L1hip'):
     
     try:
         # Create processor and run
-        processor = DLCBatchProcessor(args.data_directory, args.threshold)
+        processor = DLCBatchProcessor(
+            args.data_directory, 
+            args.threshold,
+            bootstrap=args.bootstrap,
+            bs_iterations=args.bootstrap_iterations,
+            display_progress=args.display_progress,
+            subframe_interp=not args.no_subframe_interp
+        )
         processor.process_all_trials()
         
     except Exception as e:

@@ -775,7 +775,7 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     try:
         # Load the first file to get structure - expects a multiindex header
         # For single animal DLC projects, this is (scorer, body part, coords (x, y, likelihood))
-        # For multi-animal DLC projects, this is (scorer, animal, body part, coords (x, y, likelihood))
+        # For multi-animal DLC projects, this is (scorer, individuals, body part, coords (x, y, likelihood))
         alldata = {}
         numframes = []
         scorers= []
@@ -787,7 +787,7 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
             
             # Read the h5 file
             print(f"Loading DLC data from {h5_files[c]}")
-            camdata = pandas.read_hdf(h5_files[c], key='df_with_missing')
+            camdata = pandas.read_hdf(h5_files[c])#, key='df_with_missing')
             scorer_name = camdata.columns.get_level_values('scorer')[0]
             scorers.append(scorer_name)
             dlc_scorer.append(scorer_name)  # Store scorer for this camera
@@ -804,7 +804,7 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
                     tracks = camdata.columns.get_level_values(bodypart_level).unique().tolist()
                 else:
                     raise ValueError("No bodypart level found in DLC data")
-                
+
                 #determine if multianimal dlc based on number of levels in the multiindex
                 if isinstance(camdata.columns, pandas.MultiIndex):
                     if len(camdata.columns.levels) == 3:
@@ -822,7 +822,9 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
             
             if madlc:
                 alldata[c] = {}
-                individuals = camdata.columns.get_level_values('animal').unique().tolist()
+                print("Multi-animal DLC detected - loading all individuals")
+                individuals = camdata.columns.get_level_values('individuals').unique().tolist()
+                
                 for ind in individuals:
                     for track in set(tracks):
                         # set coords with low likelihood values to NaN

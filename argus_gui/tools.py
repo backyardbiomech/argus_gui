@@ -378,9 +378,6 @@ def get_repo_errors(xyzs, pts, prof, dlt):
         uv = pts[:, k * (2 * len(prof)):(k + 1) * (2 * len(prof))]
         errors = np.zeros(xyz.shape[0])
 
-        twos = list()
-        s = 0
-
         # for each point in track
         for j in range(xyz.shape[0]):
             if not True in np.isnan(xyz[j]):
@@ -391,16 +388,35 @@ def get_repo_errors(xyzs, pts, prof, dlt):
                         re = reconstruct_uv(dlt[i], xyz[j])
                         toSum.append(((ob[0] - re[0]) ** 2 + (ob[1] - re[1]) ** 2))
                 epsilon = sum(toSum)
-                errors[j] = np.sqrt(epsilon / float(len(toSum) * 2 - 3))
-                if len(toSum) == 2:
-                    twos.append(j)
-                    s += errors[j]
+                n_cams = len(toSum)
+                
+                # MODIFIED ERROR CALCULATION FOR 2-CAMERA CASES:
+                # For 3+ cameras: Use standard DOF-based RMSE (maintains consistency)
+                # For 2 cameras: Use per-camera RMS to avoid inflation and preserve variation
+                #
+                # The issue with 2 cameras:
+                # - DOF = (2 cameras * 2 coords) - 3 unknowns = 1
+                # - Dividing by 1 inflates errors and makes them unstable
+                # - Original code then averaged all 2-cam errors, losing frame information
+                #
+                # Solution for 2 cameras only:
+                # - Use sqrt(epsilon / n_cameras) instead of sqrt(epsilon / DOF)
+                # - Preserves frame-to-frame variation (no averaging)
+                # - Gives comparable magnitude to 3+ camera errors
+                # - Each error reflects actual reprojection quality for that frame
+                #
+                # For 3+ cameras: Keep standard approach (DOF-based RMSE)
+                
+                if n_cams == 2:
+                    # 2-camera case: use per-camera RMS to avoid DOF=1 issues
+                    errors[j] = np.sqrt(epsilon / float(n_cams))
+                else:
+                    # 3+ cameras: use standard DOF-based RMSE
+                    dof = float(n_cams * 2 - 3)
+                    errors[j] = np.sqrt(epsilon / dof)
+                
                 if errors[j] == np.nan or errors[j] == 0:
                     print('Somethings wrong!', uv[j], xyz[j])
-        # rmse error from two cameras unreliable, replace with the average rmse over all two camera situations
-        if len(twos) > 1:
-            s = s / float(len(twos))
-            errors[twos] = s
         errorss.append(errors)
     ret = np.asarray(errorss)
     ret[ret == 0] = np.nan
@@ -446,7 +462,7 @@ def bootstrapXYZs(pts, rmses, prof, dlt, bsIter=250, display_progress=False, sub
             for k in range(numpts):
                 c1pts = pts[:, k * 2 * len(prof):(k * 2 * len(prof))+2]
                 cpts_clean = pts[:, k * 2 * len(prof) + c*2 : k * 2 * len(prof) + c*2 + 2]
-                #need other cam (ocam) pts to make erros work well, always use cam2, except when cam2 is being tested, then use cam 3
+                #need other cam (ocam) pts to make errors work well, always use cam2, except when cam2 is being tested, then use cam 3
                 ocam = 1 if c > 1 else 2
                 ocpts = pts[:, k * 2 * len(prof) + ocam*2 : k * 2 * len(prof) + ocam*2 + 2]
                 fin = np.where(np.isfinite(cpts_clean[:,0]))[0]
