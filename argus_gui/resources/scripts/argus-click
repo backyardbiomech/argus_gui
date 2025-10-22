@@ -815,9 +815,45 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
             if not os.path.exists(h5_files[c]):
                 raise FileNotFoundError(f"DeepLabCut h5 file not found: {h5_files[c]}")
             
-            # Read the h5 file
+            # Read the h5 file - try common DLC keys
             print(f"Loading DLC data from {h5_files[c]}")
-            camdata = pandas.read_hdf(h5_files[c], key='df_with_missing')
+            camdata = None
+            common_keys = ['df_with_missing', 'df']  # Common DLC HDF5 keys
+            
+            # First, try to read with common keys
+            for key in common_keys:
+                try:
+                    camdata = pandas.read_hdf(h5_files[c], key=key)
+                    print(f"  Successfully loaded using key: '{key}'")
+                    break  # Successfully loaded
+                except KeyError:
+                    continue  # Try next key
+            
+            # If that didn't work, try to load without specifying a key (will use first available)
+            if camdata is None:
+                try:
+                    # List available keys for debugging
+                    import h5py
+                    with h5py.File(h5_files[c], 'r') as f:
+                        available_keys = list(f.keys())
+                        print(f"  Available keys in file: {available_keys}")
+                    
+                    # Try loading with the first available key
+                    if available_keys:
+                        for key in available_keys:
+                            try:
+                                camdata = pandas.read_hdf(h5_files[c], key=key)
+                                print(f"  Successfully loaded using discovered key: '{key}'")
+                                break
+                            except:
+                                continue
+                except Exception as e:
+                    print(f"  Could not list keys in H5 file: {e}")
+            
+            # Final check - if still None, raise error
+            if camdata is None:
+                raise KeyError(f"Could not find valid DLC data in {h5_files[c]}. Tried keys: {common_keys}. Please ensure this is a valid DeepLabCut H5 file.")
+            
             scorer_name = camdata.columns.get_level_values('scorer')[0]
             scorers.append(scorer_name)
             dlc_scorer.append(scorer_name)  # Store scorer for this camera
@@ -852,7 +888,17 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
             
             if madlc:
                 alldata[c] = {}
-                individuals = camdata.columns.get_level_values('animal').unique().tolist()
+                # Find the individual/animal level name (could be 'individual', 'individuals', or 'animal')
+                individual_level = None
+                for level_name in camdata.columns.names:
+                    if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                        individual_level = level_name
+                        break
+                
+                if individual_level is None:
+                    raise ValueError("Could not find individual/animal level in multi-animal DLC data")
+                
+                individuals = camdata.columns.get_level_values(individual_level).unique().tolist()
                 for ind in individuals:
                     for track in set(tracks):
                         # set coords with low likelihood values to NaN
