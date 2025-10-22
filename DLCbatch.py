@@ -7,8 +7,7 @@ This script processes DeepLabCut H5 files in batch mode, performing 3D reconstru
 and exporting results to CSV format.
 
 Usage:
-    python DLCbatch.py /path/to/data/directory --threshold 0.95
-    python DLCbatch.py /path/to/data/directory --bootstrap --bootstrap-iterations 250
+    python DLCtest.py /path/to/data/directory --threshold 0.95
 
 Directory structure expected:
 
@@ -19,14 +18,6 @@ Directory structure expected:
     
 Output:
     CSV files with columns: track_x, track_y, track_z, track_error, track_ncams, track_score
-    
-    When --bootstrap is used, additional files are generated:
-        *_xyz-cis.csv: 95% confidence interval bounds
-            Columns: track_x_lower, track_y_lower, track_z_lower, track_x_upper, track_y_upper, track_z_upper
-        *_spline-weights.csv: Bootstrap weights for spline fitting
-            Columns: track_x, track_y, track_z
-        *_spline-error-tolerances.csv: Spline error tolerances
-            Columns: track_x, track_y, track_z
 """
 
 import os
@@ -40,7 +31,7 @@ import re
 
 # Add argus_gui to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from argus_gui.tools import uv_to_xyz, get_repo_errors, bootstrapXYZs
+from argus_gui.tools import uv_to_xyz, get_repo_errors
 try:
     import argus.ocam
     ARGUS_OCAM_AVAILABLE = True
@@ -49,14 +40,10 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95, bootstrap=False, bs_iterations=250, 
-                 display_progress=False, subframe_interp=True):
+    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
-        self.bootstrap = bootstrap
-        self.bs_iterations = bs_iterations
-        self.display_progress = display_progress
-        self.subframe_interp = subframe_interp
+        self.optimize_cameras = optimize_cameras
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
@@ -174,8 +161,21 @@ class DLCBatchProcessor:
             print(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
             
             try:
-                # Load H5 file
-                df = pd.read_hdf(h5_file, key='df_with_missing')
+                # Load H5 file - try common DLC keys
+                df = None
+                common_keys = ['df_with_missing', 'df']  # Common DLC HDF5 keys
+                
+                for key in common_keys:
+                    try:
+                        df = pd.read_hdf(h5_file, key=key)
+                        break  # Successfully loaded
+                    except KeyError:
+                        continue  # Try next key
+                
+                if df is None:
+                    # No valid data found, skip this file silently
+                    continue
+                
                 scorer_name = df.columns.get_level_values('scorer')[0]
                 
                 # Get track names from first file
@@ -198,7 +198,18 @@ class DLCBatchProcessor:
                 if is_multi_animal:
                     # Multi-animal DLC - for now, just handle single animal case
                     print("    Multi-animal DLC detected - using first individual")
-                    individuals = df.columns.get_level_values('individual').unique().tolist()
+                    
+                    # Find the individual/animal level name (could be 'individual', 'individuals', or 'animal')
+                    individual_level = None
+                    for level_name in df.columns.names:
+                        if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                            individual_level = level_name
+                            break
+                    
+                    if individual_level is None:
+                        raise ValueError("Could not find individual/animal level in multi-animal DLC data")
+                    
+                    individuals = df.columns.get_level_values(individual_level).unique().tolist()
                     individual = individuals[0]
                     cam_data = df[scorer_name][individual]
                 else:
@@ -296,18 +307,174 @@ class DLCBatchProcessor:
                             valid_likelihoods.append(likelihood)
                             n_valid_cams += 1
                 
-                if valid_likelihoods:
+                # Only record scores and ncams if we have at least 2 cameras
+                # Single camera frames cannot be triangulated and will have NaN xyz
+                if n_valid_cams >= 2:
+                    scores[frame, track_idx] = np.mean(valid_likelihoods)
                     ncams[frame, track_idx] = n_valid_cams
-                    # Set score to 0 if we have insufficient cameras for 3D reconstruction
-                    if n_valid_cams <= 1:
-                        scores[frame, track_idx] = 0.0
-                    else:
-                        scores[frame, track_idx] = np.mean(valid_likelihoods)
         
         return scores, ncams
     
-    def _perform_3d_reconstruction(self, pts_data, track_names):
-        """Perform 3D reconstruction using uv_to_xyz, optionally with bootstrapping."""
+    def _reconstruct_with_camera_optimization(self, track_pts, track_name):
+        """Reconstruct 3D coordinates with frame-by-frame outlier camera detection.
+        
+        For frames with 3+ cameras, detects cameras with significantly higher
+        reprojection error (outliers) and excludes them from reconstruction.
+        This handles cases where one camera has bad tracking despite passing
+        the likelihood threshold.
+        
+        Args:
+            track_pts: Frames x (2*n_cameras) array of pixel coordinates for one track
+            track_name: Name of the track being processed
+            
+        Returns:
+            xyz: Frames x 3 array of optimized 3D coordinates
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        n_cameras = len(self.camera_profile)
+        n_frames = track_pts.shape[0]
+        xyz_optimized = np.full((n_frames, 3), np.nan)
+        
+        # Track optimization statistics
+        n_optimized = 0  # frames where outlier camera(s) were excluded
+        
+        # Process each frame independently
+        for frame_idx in range(n_frames):
+            frame_pts = track_pts[frame_idx, :]
+            
+            # Find which cameras have valid data for this frame
+            valid_cameras = []
+            for cam_idx in range(n_cameras):
+                pt = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+                if not np.any(np.isnan(pt)):
+                    valid_cameras.append(cam_idx)
+            
+            n_valid = len(valid_cameras)
+            
+            if n_valid < 2:
+                # Can't triangulate with fewer than 2 cameras
+                continue
+            elif n_valid == 2:
+                # Only one option, use these 2 cameras
+                cam_subset = valid_cameras
+                xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                    frame_pts, cam_subset, track_pts[frame_idx:frame_idx+1, :]
+                )
+            else:
+                # 3+ cameras: detect outlier cameras and exclude them
+                # Default to using all cameras
+                xyz_all = self._reconstruct_single_frame(frame_pts, valid_cameras, track_pts[frame_idx:frame_idx+1, :])
+                
+                if np.any(np.isnan(xyz_all)):
+                    continue
+                
+                # Calculate per-camera reprojection errors for all-camera reconstruction
+                per_cam_errors = self._get_per_camera_errors(xyz_all, frame_pts, valid_cameras)
+                
+                # Check if any camera is an outlier (significantly worse than others)
+                # Use median absolute deviation to detect outliers
+                if len(per_cam_errors) >= 3:
+                    median_error = np.median(per_cam_errors)
+                    mad = np.median(np.abs(per_cam_errors - median_error))
+                    
+                    # Identify outlier cameras (error > median + 2*MAD)
+                    # Only exclude if the outlier is significantly bad
+                    threshold = median_error + 2 * max(mad, 0.5)  # At least 0.5 pixel threshold
+                    outlier_indices = [i for i, err in enumerate(per_cam_errors) if err > threshold]
+                    
+                    if outlier_indices and len(valid_cameras) - len(outlier_indices) >= 2:
+                        # Exclude outlier camera(s) and reconstruct
+                        good_cameras = [valid_cameras[i] for i in range(len(valid_cameras)) 
+                                       if i not in outlier_indices]
+                        xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                            frame_pts, good_cameras, track_pts[frame_idx:frame_idx+1, :]
+                        )
+                        n_optimized += 1
+                    else:
+                        # No significant outliers, use all cameras
+                        xyz_optimized[frame_idx] = xyz_all
+                else:
+                    # Not enough cameras to detect outliers, use all
+                    xyz_optimized[frame_idx] = xyz_all
+        
+        # Print optimization summary
+        n_multi_cam = np.sum([len([c for c in range(n_cameras) 
+                                    if not np.any(np.isnan(track_pts[i, c*2:(c+1)*2]))]) >= 3 
+                              for i in range(n_frames)])
+        if n_multi_cam > 0:
+            print(f"      {track_name}: {n_optimized}/{n_multi_cam} frames had outlier camera(s) excluded")
+        
+        return xyz_optimized
+    
+    def _get_per_camera_errors(self, xyz, frame_pts, cam_indices):
+        """Calculate reprojection error for each camera individually.
+        
+        Args:
+            xyz: (3,) array of 3D coordinates
+            frame_pts: (2*n_cameras,) array of pixel coordinates
+            cam_indices: List of camera indices to calculate errors for
+            
+        Returns:
+            errors: List of reprojection errors (in pixels) for each camera
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        errors = []
+        for cam_idx in cam_indices:
+            pt_observed = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+            if np.any(np.isnan(pt_observed)):
+                errors.append(np.inf)  # Mark missing data as infinite error
+                continue
+            
+            # Undistort observed point
+            pt_undist = undistort_pts(np.array([pt_observed]), self.camera_profile[cam_idx])[0]
+            
+            # Reproject 3D point back to this camera
+            pt_reproj = reconstruct_uv(self.dlt_coefficients[cam_idx], xyz)
+            
+            # Calculate reprojection error in pixels
+            error = np.sqrt((pt_undist[0] - pt_reproj[0])**2 + (pt_undist[1] - pt_reproj[1])**2)
+            errors.append(error)
+        
+        return np.array(errors)
+    
+    def _reconstruct_single_frame(self, frame_pts, cam_indices, pts_subset):
+        """Reconstruct 3D point from a subset of cameras for a single frame.
+        
+        Args:
+            frame_pts: (2*n_cameras,) array of pixel coordinates for one frame
+            cam_indices: List of camera indices to use
+            pts_subset: (1, 2*n_cameras) array (for compatibility)
+            
+        Returns:
+            xyz: (3,) array of 3D coordinates
+        """
+        # Build subset of profiles and DLT coefficients
+        if isinstance(self.camera_profile, list):
+            prof_subset = [self.camera_profile[i] for i in cam_indices]
+        else:
+            prof_subset = self.camera_profile[cam_indices, :]
+        dlt_subset = self.dlt_coefficients[cam_indices, :]
+        
+        # Build pts array for just these cameras
+        pts_for_recon = np.full((1, 2 * len(cam_indices)), np.nan)
+        for new_idx, cam_idx in enumerate(cam_indices):
+            pts_for_recon[0, new_idx * 2:(new_idx + 1) * 2] = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+        
+        # Reconstruct
+        xyz = uv_to_xyz(pts_for_recon, prof_subset, dlt_subset)
+        return xyz[0] if len(xyz) > 0 else np.full(3, np.nan)
+    
+    def _perform_3d_reconstruction(self, pts_data, track_names, optimize_camera_selection=True):
+        """Perform 3D reconstruction using uv_to_xyz.
+        
+        Args:
+            pts_data: Frame x (2*cameras*tracks) array of pixel coordinates
+            track_names: List of track names
+            optimize_camera_selection: If True, test 2-camera combinations when 3+ cameras available
+                                      and use the combination with lowest reprojection error
+        """
         n_tracks = len(track_names)
         max_frames = pts_data.shape[0]
         
@@ -323,8 +490,12 @@ class DLCBatchProcessor:
             track_pts = pts_data[:, track_idx * 2 * len(self.camera_profile):(track_idx + 1) * 2 * len(self.camera_profile)]
             
             try:
-                # Perform 3D reconstruction
-                xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
+                if optimize_camera_selection and len(self.camera_profile) >= 3:
+                    # Perform frame-by-frame camera optimization
+                    xyz = self._reconstruct_with_camera_optimization(track_pts, track_names[track_idx])
+                else:
+                    # Standard reconstruction using all cameras
+                    xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
                 xyz_results.append(xyz)
                 
             except Exception as e:
@@ -333,7 +504,7 @@ class DLCBatchProcessor:
                 xyz_results.append(np.full((max_frames, 3), np.nan))
         
         # Now calculate reprojection errors for ALL tracks at once (like argus-click does)
-        all_errors = None  # Initialize to None
+        # Calculate reprojection errors for all tracks at once (like argus-click does)
         try:
             # Concatenate all XYZ data horizontally like argus-click does
             if xyz_results:
@@ -354,40 +525,13 @@ class DLCBatchProcessor:
             else:
                 # No valid reconstructions
                 error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
-                all_errors = np.full((max_frames, n_tracks), np.nan)
                 
         except Exception as e:
             print(f"    Error calculating reprojection errors: {e}")
             # Fill with NaNs if error calculation fails
             error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
-            all_errors = np.full((max_frames, n_tracks), np.nan)
         
-        # Perform bootstrapping if requested
-        bootstrap_ci = None
-        bootstrap_weights = None
-        bootstrap_tols = None
-        
-        if self.bootstrap:
-            print("    Performing bootstrapping...")
-            try:
-                bootstrap_ci, bootstrap_weights, bootstrap_tols = bootstrapXYZs(
-                    pts_data, 
-                    all_errors,  # rmses should be (n_frames, n_tracks)
-                    self.camera_profile, 
-                    self.dlt_coefficients,
-                    bsIter=self.bs_iterations,
-                    display_progress=self.display_progress,
-                    subframeinterp=self.subframe_interp
-                )
-                print("    Bootstrapping complete")
-            except Exception as e:
-                print(f"    Error during bootstrapping: {e}")
-                # Create empty arrays on failure
-                bootstrap_ci = np.full((max_frames, 3 * n_tracks), np.nan)
-                bootstrap_weights = np.full((max_frames, 3 * n_tracks), np.nan)
-                bootstrap_tols = np.full(3 * n_tracks, np.nan)
-        
-        return xyz_results, error_results, bootstrap_ci, bootstrap_weights, bootstrap_tols
+        return xyz_results, error_results
     
     def _extract_timestamp_from_trial_id(self, trial_id):
         """Extract timestamp from trial identifier for CSV filename."""
@@ -413,9 +557,8 @@ class DLCBatchProcessor:
         clean_id = trial_id.strip('_').replace('/', '-').replace('\\', '-').replace(' ', '_')
         return clean_id
     
-    def _save_results(self, trial_id, track_names, xyz_results, error_results, scores, ncams,
-                     bootstrap_ci=None, bootstrap_weights=None, bootstrap_tols=None):
-        """Save results to CSV file, including bootstrap confidence intervals if available."""
+    def _save_results(self, trial_id, track_names, xyz_results, error_results, scores, ncams):
+        """Save results to CSV file."""
         # Create output directory if it doesn't exist
         output_dir = os.path.join(self.data_dir, 'pose-3d-argus')
         os.makedirs(output_dir, exist_ok=True)
@@ -446,77 +589,21 @@ class DLCBatchProcessor:
             data_dict[f'{track_name}_ncams'] = track_ncams
             data_dict[f'{track_name}_score'] = track_scores
         
-        # Create and save DataFrame for main results
+        # Create and save DataFrame
         df = pd.DataFrame(data_dict)
         df.to_csv(output_file, index=False, na_rep='NaN')
         
         print(f"  Saved results to: {output_file}")
-        
-        # Save bootstrap data if available (matching argus-click non-sparse format, lines 2890-2920)
-        if bootstrap_ci is not None:
-            # Concatenate all xyz_results to match what was used for bootstrapping
-            xyz_all = xyz_results[0]
-            for k in range(1, len(xyz_results)):
-                xyz_all = np.hstack((xyz_all, xyz_results[k]))
-            
-            # Calculate upper and lower bounds from confidence intervals
-            upper = xyz_all + bootstrap_ci
-            lower = xyz_all - bootstrap_ci
-            
-            # Create columns in the same format as argus-click: lower then upper for each coordinate
-            cols = list()
-            for track_name in track_names:
-                cols.append(f'{track_name}_x_lower')
-                cols.append(f'{track_name}_y_lower')
-                cols.append(f'{track_name}_z_lower')
-                cols.append(f'{track_name}_x_upper')
-                cols.append(f'{track_name}_y_upper')
-                cols.append(f'{track_name}_z_upper')
-            
-            # Interleave lower and upper bounds: [x_lower, y_lower, z_lower, x_upper, y_upper, z_upper] for each track
-            ci_data = np.zeros((upper.shape[0], upper.shape[1] * 2))
-            ci_data[ci_data == 0] = np.nan
-            for k in range(int(upper.shape[1] / 3)):
-                ci_data[:, 2 * k * 3:2 * (k + 1) * 3] = np.concatenate(
-                    (lower[:, k * 3:(k + 1) * 3], upper[:, k * 3:(k + 1) * 3]), axis=1)
-            
-            # Save confidence intervals
-            ci_file = os.path.join(output_dir, f"{timestamp}_xyz-cis.csv")
-            dataf_ci = pd.DataFrame(ci_data, columns=cols)
-            dataf_ci.to_csv(ci_file, index=False, na_rep='NaN')
-            print(f"  Saved bootstrap confidence intervals to: {ci_file}")
-            
-            # Save weights if available
-            if bootstrap_weights is not None:
-                weight_cols = list()
-                for track_name in track_names:
-                    weight_cols.append(f'{track_name}_x')
-                    weight_cols.append(f'{track_name}_y')
-                    weight_cols.append(f'{track_name}_z')
-                
-                weights_file = os.path.join(output_dir, f"{timestamp}_spline-weights.csv")
-                dataf_weights = pd.DataFrame(bootstrap_weights, columns=weight_cols)
-                dataf_weights.to_csv(weights_file, index=False, na_rep='NaN')
-                print(f"  Saved spline weights to: {weights_file}")
-            
-            # Save tolerances if available
-            if bootstrap_tols is not None:
-                tol_cols = list()
-                for track_name in track_names:
-                    tol_cols.append(f'{track_name}_x')
-                    tol_cols.append(f'{track_name}_y')
-                    tol_cols.append(f'{track_name}_z')
-                
-                tols_file = os.path.join(output_dir, f"{timestamp}_spline-error-tolerances.csv")
-                dataf_tols = pd.DataFrame(np.reshape(bootstrap_tols, (1, len(tol_cols))), columns=tol_cols)
-                dataf_tols.to_csv(tols_file, index=False, na_rep='NaN')
-                print(f"  Saved spline error tolerances to: {tols_file}")
-        
         return output_file
     
     def process_all_trials(self):
         """Process all trials in the data directory."""
         trials = self._find_trials()
+        
+        if self.optimize_cameras:
+            print("Camera optimization enabled: Detecting and excluding outlier cameras per frame")
+        else:
+            print("Camera optimization disabled: Using all available cameras per frame")
         
         processed_files = []
         
@@ -536,12 +623,12 @@ class DLCBatchProcessor:
                 scores, ncams = self._calculate_scores_and_ncams(all_data, track_names, max_frames)
                 
                 # Perform 3D reconstruction
-                xyz_results, error_results, bootstrap_ci, bootstrap_weights, bootstrap_tols = \
-                    self._perform_3d_reconstruction(pts_data, track_names)
+                xyz_results, error_results = self._perform_3d_reconstruction(
+                    pts_data, track_names, optimize_camera_selection=self.optimize_cameras
+                )
                 
                 # Save results
-                output_file = self._save_results(trial_id, track_names, xyz_results, error_results, 
-                                                scores, ncams, bootstrap_ci, bootstrap_weights, bootstrap_tols)
+                output_file = self._save_results(trial_id, track_names, xyz_results, error_results, scores, ncams)
                 processed_files.append(output_file)
                 
             except Exception as e:
@@ -570,14 +657,6 @@ Directory structure expected:
 
 Output CSV columns for each track (example for 'L1hip'):
     L1hip_x, L1hip_y, L1hip_z, L1hip_error, L1hip_ncams, L1hip_score
-
-With --bootstrap flag, additional files are generated:
-    *_xyz-cis.csv with columns:
-        L1hip_x_lower, L1hip_y_lower, L1hip_z_lower, L1hip_x_upper, L1hip_y_upper, L1hip_z_upper
-    *_spline-weights.csv with columns:
-        L1hip_x, L1hip_y, L1hip_z
-    *_spline-error-tolerances.csv with columns:
-        L1hip_x, L1hip_y, L1hip_z
         """
     )
     
@@ -585,14 +664,10 @@ With --bootstrap flag, additional files are generated:
                        help='Path to directory containing videos-raw and calibration folders')
     parser.add_argument('--threshold', '-t', type=float, default=0.95,
                        help='DLC likelihood threshold (default: 0.95)')
-    parser.add_argument('--bootstrap', '-b', action='store_true',
-                       help='Perform bootstrapping to estimate confidence intervals')
-    parser.add_argument('--bootstrap-iterations', '-i', type=int, default=250,
-                       help='Number of bootstrap iterations (default: 250)')
-    parser.add_argument('--display-progress', '-p', action='store_true',
-                       help='Display progress bars during bootstrapping')
-    parser.add_argument('--no-subframe-interp', action='store_true',
-                       help='Disable subframe interpolation during bootstrapping')
+    parser.add_argument('--optimize-cameras', action='store_true', default=True,
+                       help='Optimize camera selection per frame (default: enabled)')
+    parser.add_argument('--no-optimize-cameras', dest='optimize_cameras', action='store_false',
+                       help='Disable camera optimization, use all cameras for each frame')
     
     args = parser.parse_args()
     
@@ -605,11 +680,8 @@ With --bootstrap flag, additional files are generated:
         # Create processor and run
         processor = DLCBatchProcessor(
             args.data_directory, 
-            args.threshold,
-            bootstrap=args.bootstrap,
-            bs_iterations=args.bootstrap_iterations,
-            display_progress=args.display_progress,
-            subframe_interp=not args.no_subframe_interp
+            args.threshold, 
+            optimize_cameras=args.optimize_cameras
         )
         processor.process_all_trials()
         

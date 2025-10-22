@@ -4,6 +4,8 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
+__all__ = ['FrameFinder', 'acceptable']
+
 import copy
 
 import cv2
