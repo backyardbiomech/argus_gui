@@ -28,6 +28,8 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 import re
+import logging
+from datetime import datetime
 
 # Add argus_gui to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,11 +51,50 @@ class DLCBatchProcessor:
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
         self.calibration_dir = os.path.join(data_dir, 'calibration')
         
+        # Set up logging
+        self.log_file = os.path.join(data_dir, 'DLCBatch_log.txt')
+        self._setup_logging()
+        
         # Validate directory structure
         self._validate_directories()
         
         # Load calibration files
         self._load_calibration()
+    
+    def _setup_logging(self):
+        """Set up logging to both file and console."""
+        # Create logger
+        self.logger = logging.getLogger('DLCBatch')
+        self.logger.setLevel(logging.INFO)
+        
+        # Remove any existing handlers
+        self.logger.handlers = []
+        
+        # Create file handler
+        fh = logging.FileHandler(self.log_file, mode='w')
+        fh.setLevel(logging.INFO)
+        
+        # Create console handler
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setLevel(logging.INFO)
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', 
+                                     datefmt='%Y-%m-%d %H:%M:%S')
+        fh.setFormatter(formatter)
+        ch.setFormatter(formatter)
+        
+        # Add handlers to logger
+        self.logger.addHandler(fh)
+        self.logger.addHandler(ch)
+        
+        # Log startup info
+        self.logger.info("="*60)
+        self.logger.info("DLC Batch Processing Started")
+        self.logger.info(f"Data directory: {self.data_dir}")
+        self.logger.info(f"Likelihood threshold: {self.likelihood_threshold}")
+        self.logger.info(f"Camera optimization: {self.optimize_cameras}")
+        self.logger.info("="*60)
     
     def _validate_directories(self):
         """Check that required directories exist."""
@@ -140,25 +181,25 @@ class DLCBatchProcessor:
                 trial_id = match.group(2)
                 trials[trial_id].append((cam_num, h5_file))
             else:
-                print(f"Warning: Could not parse camera number from {basename}")
+                self.logger.warning(f"Could not parse camera number from {basename}")
         
         # Sort cameras within each trial
         for trial_id in trials:
             trials[trial_id].sort(key=lambda x: x[0])  # Sort by camera number
         
-        print(f"Found {len(trials)} trials")
+        self.logger.info(f"Found {len(trials)} trials")
         return trials
     
     def _load_dlc_data(self, h5_files, trial_id):
         """Load DLC data from H5 files for a single trial."""
-        print(f"Processing trial: {trial_id}")
+        self.logger.info(f"Processing trial: {trial_id}")
         
         all_data = {}
         track_names = None
         max_frames = 0
         
         for cam_num, h5_file in h5_files:
-            print(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
+            self.logger.info(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
             
             try:
                 # Load H5 file - try common DLC keys
@@ -197,7 +238,7 @@ class DLCBatchProcessor:
                 
                 if is_multi_animal:
                     # Multi-animal DLC - for now, just handle single animal case
-                    print("    Multi-animal DLC detected - using first individual")
+                    self.logger.info("    Multi-animal DLC detected - using first individual")
                     
                     # Find the individual/animal level name (could be 'individual', 'individuals', or 'animal')
                     individual_level = None
@@ -246,7 +287,7 @@ class DLCBatchProcessor:
                 max_frames = max(max_frames, len(df))
                 
             except Exception as e:
-                print(f"    Error loading {h5_file}: {e}")
+                self.logger.error(f"    Error loading {h5_file}: {e}")
                 continue
         
         return all_data, track_names, max_frames
@@ -403,7 +444,7 @@ class DLCBatchProcessor:
                                     if not np.any(np.isnan(track_pts[i, c*2:(c+1)*2]))]) >= 3 
                               for i in range(n_frames)])
         if n_multi_cam > 0:
-            print(f"      {track_name}: {n_optimized}/{n_multi_cam} frames had outlier camera(s) excluded")
+            self.logger.info(f"      {track_name}: {n_optimized}/{n_multi_cam} frames had outlier camera(s) excluded")
         
         return xyz_optimized
     
@@ -499,7 +540,7 @@ class DLCBatchProcessor:
                 xyz_results.append(xyz)
                 
             except Exception as e:
-                print(f"    Error reconstructing {track_names[track_idx]}: {e}")
+                self.logger.error(f"    Error reconstructing {track_names[track_idx]}: {e}")
                 # Fill with NaNs if reconstruction fails
                 xyz_results.append(np.full((max_frames, 3), np.nan))
         
@@ -527,7 +568,7 @@ class DLCBatchProcessor:
                 error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
                 
         except Exception as e:
-            print(f"    Error calculating reprojection errors: {e}")
+            self.logger.error(f"    Error calculating reprojection errors: {e}")
             # Fill with NaNs if error calculation fails
             error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
         
@@ -593,7 +634,7 @@ class DLCBatchProcessor:
         df = pd.DataFrame(data_dict)
         df.to_csv(output_file, index=False, na_rep='NaN')
         
-        print(f"  Saved results to: {output_file}")
+        self.logger.info(f"  Saved results to: {output_file}")
         return output_file
     
     def process_all_trials(self):
@@ -601,9 +642,9 @@ class DLCBatchProcessor:
         trials = self._find_trials()
         
         if self.optimize_cameras:
-            print("Camera optimization enabled: Detecting and excluding outlier cameras per frame")
+            self.logger.info("Camera optimization enabled: Detecting and excluding outlier cameras per frame")
         else:
-            print("Camera optimization disabled: Using all available cameras per frame")
+            self.logger.info("Camera optimization disabled: Using all available cameras per frame")
         
         processed_files = []
         
@@ -613,7 +654,7 @@ class DLCBatchProcessor:
                 all_data, track_names, max_frames = self._load_dlc_data(h5_files, trial_id)
                 
                 if not all_data or not track_names:
-                    print(f"  No valid data found for trial {trial_id}")
+                    self.logger.warning(f"  No valid data found for trial {trial_id}")
                     continue
                 
                 # Format data for reconstruction
@@ -632,12 +673,17 @@ class DLCBatchProcessor:
                 processed_files.append(output_file)
                 
             except Exception as e:
-                print(f"  Error processing trial {trial_id}: {e}")
+                self.logger.error(f"  Error processing trial {trial_id}: {e}")
                 continue
         
-        print(f"\nProcessing complete! Generated {len(processed_files)} files:")
+        self.logger.info(f"\nProcessing complete! Generated {len(processed_files)} files:")
         for file_path in processed_files:
-            print(f"  {file_path}")
+            self.logger.info(f"  {file_path}")
+        
+        self.logger.info("="*60)
+        self.logger.info("DLC Batch Processing Completed")
+        self.logger.info(f"Log file saved to: {self.log_file}")
+        self.logger.info("="*60)
         
         return processed_files
 
@@ -673,6 +719,7 @@ Output CSV columns for each track (example for 'L1hip'):
     
     # Validate data directory
     if not os.path.exists(args.data_directory):
+        # Can't use logger yet since it's created by the processor
         print(f"Error: Data directory does not exist: {args.data_directory}")
         sys.exit(1)
     
@@ -686,6 +733,13 @@ Output CSV columns for each track (example for 'L1hip'):
         processor.process_all_trials()
         
     except Exception as e:
+        # Try to log to file if processor was created
+        try:
+            if 'processor' in locals() and hasattr(processor, 'logger'):
+                processor.logger.error(f"Fatal error: {e}")
+                processor.logger.exception("Exception details:")
+        except:
+            pass
         print(f"Error: {e}")
         sys.exit(1)
 
