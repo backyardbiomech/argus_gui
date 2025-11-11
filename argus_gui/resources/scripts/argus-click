@@ -135,6 +135,42 @@ class SaveFilePopup(QtWidgets.QWidget):
         # options |= QtWidgets.QFileDialog.DontUseNativeDialog
         self.filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, caption=win_title, dir = init, filter = filt, options=options)
 
+def get_initial_save_directory():
+    """
+    Get the directory of the first loaded video to use as initial directory for save dialogs.
+    Falls back to current working directory if no videos are loaded.
+    
+    Returns:
+        str: Directory path for initial save location
+    """
+    try:
+        # Get first video window
+        video_windows = [window for window in pyglet.app.windows if isinstance(window, ClickerWindow)]
+        if video_windows and video_windows[0].movie:
+            return os.path.dirname(video_windows[0].movie)
+    except:
+        pass
+    # Fallback to current working directory
+    return os.getcwd()
+
+def get_initial_save_directory():
+    """
+    Get the directory of the first loaded video to use as initial directory for save dialogs.
+    Falls back to current working directory if no videos are loaded.
+    
+    Returns:
+        str: Directory path for initial save location
+    """
+    try:
+        # Get first video window
+        video_windows = [window for window in pyglet.app.windows if isinstance(window, ClickerWindow)]
+        if video_windows and video_windows[0].movie:
+            return os.path.dirname(video_windows[0].movie)
+    except:
+        pass
+    # Fallback to current working directory
+    return os.getcwd()
+
 def clean_filename_for_prefix(filename):
     """
     Remove file extension from filename to use as a clean prefix.
@@ -500,7 +536,8 @@ class OptionsPopupWindow(QtWidgets.QDialog):
             )
 
     def load_camera(self):
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose camera profile", filter="Text files (*.txt)")
+        initial_dir = get_initial_save_directory()
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose camera profile", initial_dir, filter="Text files (*.txt)")
         try:
             if filename:
                 load_camera(filename)
@@ -514,7 +551,8 @@ class OptionsPopupWindow(QtWidgets.QDialog):
     def load_DLT(self):
         global DLTCoefficients
         global dlt_filename
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose DLT coefficients file", filter="CSV files (*.csv)")
+        initial_dir = get_initial_save_directory()
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose DLT coefficients file", initial_dir, filter="CSV files (*.csv)")
 
         if filename:
             try:
@@ -547,7 +585,8 @@ class OptionsPopupWindow(QtWidgets.QDialog):
 
     def save_as(self):
         global global_filename
-        filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Select location and enter file name prefix")
+        initial_dir = get_initial_save_directory()
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Select location and enter file name prefix", initial_dir)
         if filename != '':
             self.fnam.setText(filename)
             global_filename = filename
@@ -2763,7 +2802,8 @@ class ClickerWindow(pyglet.window.Window):
             app = QtWidgets.QApplication.instance()
             if app is None:
                 app = QtWidgets.QApplication([])
-            w = SaveFilePopup("Select location and enter prefix for sparse file", global_filename.split('/')[-1], 'All files (*.*)')
+            initial_dir = get_initial_save_directory()
+            w = SaveFilePopup("Select location and enter prefix for sparse file", initial_dir, 'All files (*.*)')
             if w.filename:
                 filename = clean_filename_for_prefix(w.filename)
         else:
@@ -2894,7 +2934,8 @@ class ClickerWindow(pyglet.window.Window):
             app = QtWidgets.QApplication.instance()
             if app is None:
                 app = QtWidgets.QApplication([])
-            w = SaveFilePopup("Select location and enter prefix for dense file", global_filename.split('/')[-1], 'All files (*.*)')
+            initial_dir = get_initial_save_directory()
+            w = SaveFilePopup("Select location and enter prefix for dense file", initial_dir, 'All files (*.*)')
             if w.filename:
                 filename = clean_filename_for_prefix(w.filename)
         else:
@@ -3038,7 +3079,8 @@ class ClickerWindow(pyglet.window.Window):
             app = QtWidgets.QApplication.instance()
             if app is None:
                 app = QtWidgets.QApplication([])
-            w = SaveFilePopup("Select location and enter prefix for DeepLabCut files", global_filename.split('/')[-1], 'All files (*.*)')
+            initial_dir = get_initial_save_directory()
+            w = SaveFilePopup("Select location and enter prefix for DeepLabCut files", initial_dir, 'All files (*.*)')
             if w.filename:
                 filename = clean_filename_for_prefix(w.filename)
         else:
