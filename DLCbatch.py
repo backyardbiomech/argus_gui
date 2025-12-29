@@ -581,11 +581,19 @@ class DLCBatchProcessor:
             track_scores = scores[:, track_idx]
             track_ncams = ncams[:, track_idx]
             
+            # CRITICAL: Enforce that XYZ and errors are NaN when ncams < 2
+            # Triangulation requires at least 2 cameras
+            insufficient_cameras_mask = track_ncams < 2
+            xyz_clean = xyz.copy()
+            xyz_clean[insufficient_cameras_mask, :] = np.nan
+            errors_clean = errors.copy()
+            errors_clean[insufficient_cameras_mask] = np.nan
+            
             # Add columns for this track
-            data_dict[f'{track_name}_x'] = xyz[:, 0]
-            data_dict[f'{track_name}_y'] = xyz[:, 1]
-            data_dict[f'{track_name}_z'] = xyz[:, 2]
-            data_dict[f'{track_name}_error'] = errors
+            data_dict[f'{track_name}_x'] = xyz_clean[:, 0]
+            data_dict[f'{track_name}_y'] = xyz_clean[:, 1]
+            data_dict[f'{track_name}_z'] = xyz_clean[:, 2]
+            data_dict[f'{track_name}_error'] = errors_clean
             data_dict[f'{track_name}_ncams'] = track_ncams
             data_dict[f'{track_name}_score'] = track_scores
         
