@@ -1274,9 +1274,9 @@ class ClickerWindow(pyglet.window.Window):
         self.folder = ''
         self.current_marker = None
         self.scale_factor = factor
-        # create array to keep track of offset changes
-        self.offsets_output = np.zeros(self.end)
-        self.offsets_output[:] = np.nan
+        # create array to keep track of offset - now uses single offset value per camera
+        # Initialize with the current offset for this camera
+        self.offsets_output = np.full(self.end, self.offsets[self.original_index], dtype=np.float64)
 
         if self.actual_camera_number == 1:
             self.base = True
@@ -2535,6 +2535,11 @@ class ClickerWindow(pyglet.window.Window):
 
             if self.points[track].shape[0] > self.end:
                 matching = False
+        
+        # Ensure offsets_output reflects the current offset for all frames
+        # This is needed when loading data from CSV/TSV to ensure proper offset tracking
+        self.offsets_output[:] = self.offsets[self.original_index]
+        
         self.clearBatch()
         # sys.stdout.flush()
         start_time = time.time()
@@ -3794,18 +3799,28 @@ class ClickerWindow(pyglet.window.Window):
         elif symbol == key.UP:
             # if not self.base:
             self.frameFinder.offset = self.frameFinder.offset + 1
+            # Update the global offset for this camera so it applies to all frames
+            self.offsets[self.original_index] = self.frameFinder.offset
+            # Update all offsets_output values to the new offset for consistency
+            self.offsets_output[:] = self.frameFinder.offset
             self.changed = True
             current_frame = self.current_point_index
             self.change_marker()
+            print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
             if sync:
                 self.update_all_windows()
 
         elif symbol == key.DOWN:
             # if not self.base:
             self.frameFinder.offset = self.frameFinder.offset - 1
+            # Update the global offset for this camera so it applies to all frames
+            self.offsets[self.original_index] = self.frameFinder.offset
+            # Update all offsets_output values to the new offset for consistency
+            self.offsets_output[:] = self.frameFinder.offset
             self.changed = True
             current_frame = self.current_point_index
             self.change_marker()
+            print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
             if sync:
                 self.update_all_windows()
 
@@ -4194,11 +4209,20 @@ def load_from_config(path):
         if check_if_file(camera_profile_path):
             load_camera(camera_profile_path)
 
+        # Extract offsets for each camera from the loaded offsets CSV
+        # Look for the first non-zero value in each camera's column
+        # If all values are zero (or NaN), use zero as the offset
         for camera_index in range(0, len(loaded_movies)):
-            offset = loaded_offsets[frame_number - 2][camera_index]
-            if np.isnan(offset):
-                offset = 0
+            offset = 0  # Default to zero
+            # Check all frames for this camera to find first non-zero offset
+            for frame_idx in range(len(loaded_offsets)):
+                frame_offset = loaded_offsets[frame_idx][camera_index]
+                # Skip NaN values
+                if not np.isnan(frame_offset) and frame_offset != 0:
+                    offset = frame_offset
+                    break  # Use the first non-zero value found
             useable_offsets.append(offset)
+            print(f"Camera {camera_index + 1} offset loaded as: {offset}")
 
         loaded_end = int(cv2.VideoCapture(loaded_movies[0]).get(cv2.CAP_PROP_FRAME_COUNT))
         
