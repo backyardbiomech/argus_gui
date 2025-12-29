@@ -37,16 +37,34 @@ for sp in site.getsitepackages():
 
 import cv2
 
-# Windows OpenGL compatibility settings - MUST be set before pyglet import
-if sys.platform.startswith('win'):
-    # Force software rendering if hardware acceleration is problematic
-    os.environ['PYGLET_GL_DISABLE_MULTISAMPLING'] = '1'
-    os.environ['PYGLET_GL_FALLBACK'] = '1'
-    os.environ['PYGLET_SHADOW_WINDOW'] = '0'
-    # Force OpenGL software rendering as fallback
-    os.environ['MESA_GL_VERSION_OVERRIDE'] = '3.3'
-    # Disable advanced OpenGL features that might not be supported
-    os.environ['PYGLET_GL_DISABLE_WGL'] = '1'
+# GPU acceleration settings - MUST be set before pyglet import
+# By default, pyglet uses hardware OpenGL which leverages GPU acceleration.
+# The old code forced software rendering on Windows, preventing GPU usage even on high-end systems.
+# This has been changed to allow hardware acceleration by default.
+#
+# Users can disable hardware acceleration if they encounter driver issues by setting:
+#   Windows: set ARGUS_GPU_ACCELERATION=disable
+#   Mac/Linux: export ARGUS_GPU_ACCELERATION=disable
+if os.environ.get('ARGUS_GPU_ACCELERATION', '').lower() == 'disable':
+    # Only apply software rendering fallback if explicitly requested
+    print("GPU acceleration disabled via ARGUS_GPU_ACCELERATION environment variable")
+    if sys.platform.startswith('win'):
+        # Force software rendering if hardware acceleration is problematic
+        os.environ['PYGLET_GL_DISABLE_MULTISAMPLING'] = '1'
+        os.environ['PYGLET_GL_FALLBACK'] = '1'
+        os.environ['PYGLET_SHADOW_WINDOW'] = '0'
+        # Force OpenGL software rendering as fallback
+        os.environ['MESA_GL_VERSION_OVERRIDE'] = '3.3'
+        # Disable advanced OpenGL features that might not be supported
+        os.environ['PYGLET_GL_DISABLE_WGL'] = '1'
+else:
+    # Default: Use hardware OpenGL (pyglet's default behavior)
+    # This works on systems with or without dedicated GPUs:
+    # - Dedicated GPU: Uses discrete GPU for best performance
+    # - Integrated GPU: Uses integrated graphics (still much faster than software rendering)
+    # - No GPU: Pyglet automatically falls back to software rendering
+    # NOTE: Pyglet automatically handles GPU selection, no environment variables needed
+    pass
 
 import pyglet
 from pyglet.gl import Config
