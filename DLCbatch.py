@@ -42,10 +42,13 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True):
+    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True, 
+                 use_filtered=True, shuffle=1):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
         self.optimize_cameras = optimize_cameras
+        self.use_filtered = use_filtered
+        self.shuffle = shuffle
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
@@ -94,6 +97,8 @@ class DLCBatchProcessor:
         self.logger.info(f"Data directory: {self.data_dir}")
         self.logger.info(f"Likelihood threshold: {self.likelihood_threshold}")
         self.logger.info(f"Camera optimization: {self.optimize_cameras}")
+        self.logger.info(f"Use filtered files: {self.use_filtered}")
+        self.logger.info(f"Shuffle number: {self.shuffle}")
         self.logger.info("="*60)
     
     def _validate_directories(self):
@@ -166,22 +171,76 @@ class DLCBatchProcessor:
     
     def _find_trials(self):
         """Find all unique trials based on H5 file naming patterns."""
-        h5_files = glob.glob(os.path.join(self.videos_dir, '*.h5'))
-        if not h5_files:
+        all_h5_files = glob.glob(os.path.join(self.videos_dir, '*.h5'))
+        if not all_h5_files:
             raise FileNotFoundError("No H5 files found in videos-raw directory")
         
-        # Group files by trial (everything after camera number)
-        trials = defaultdict(list)
+        # Filter H5 files based on filtered and shuffle criteria
+        h5_files = []
+        filtered_pattern = 'filtered' if self.use_filtered else ''
+        shuffle_pattern = f'shuffle{self.shuffle}'
+        
+        for h5_file in all_h5_files:
+            basename = os.path.basename(h5_file)
+            
+            # Check filtered requirement
+            if self.use_filtered and 'filtered' not in basename:
+                continue
+            elif not self.use_filtered and 'filtered' in basename:
+                continue
+            
+            # Check shuffle requirement
+            if shuffle_pattern not in basename:
+                continue
+            
+            h5_files.append(h5_file)
+        
+        if not h5_files:
+            filter_desc = f"{'filtered' if self.use_filtered else 'non-filtered'} with {shuffle_pattern}"
+            raise FileNotFoundError(
+                f"No H5 files found matching criteria: {filter_desc}\n"
+                f"Found {len(all_h5_files)} total H5 files in {self.videos_dir}"
+            )
+        
+        self.logger.info(f"Filtered {len(all_h5_files)} H5 files down to {len(h5_files)} files matching criteria")
+        self.logger.info(f"  Criteria: {'filtered' if self.use_filtered else 'non-filtered'}, shuffle{self.shuffle}")
+        
+        # Group files by camera+trial (before scorer)
+        # We need to handle multiple scorers for the same video
+        cam_trial_files = defaultdict(list)
+        
         for h5_file in h5_files:
             basename = os.path.basename(h5_file)
-            # Extract camera number and trial identifier
+            # Extract camera number and everything after
             match = re.match(r'cam(\d+)(.+)\.h5$', basename)
             if match:
                 cam_num = int(match.group(1))
-                trial_id = match.group(2)
-                trials[trial_id].append((cam_num, h5_file))
+                rest = match.group(2)
+                
+                # Try to separate trial from scorer
+                # Common pattern: cam1_trialname_scorerDLC_resnet50_...
+                # We'll use the part before the last underscore as trial key
+                # and group all files with same cam+trial together
+                cam_trial_files[(cam_num, rest)].append(h5_file)
             else:
                 self.logger.warning(f"Could not parse camera number from {basename}")
+        
+        # For each cam+trial group, select the most recently created file
+        trials = defaultdict(list)
+        for (cam_num, trial_part), file_list in cam_trial_files.items():
+            if len(file_list) > 1:
+                # Multiple files for same camera+trial (different scorers)
+                # Select most recently created file
+                most_recent = max(file_list, key=lambda f: os.path.getmtime(f))
+                self.logger.info(f"Found {len(file_list)} H5 files for cam{cam_num}{trial_part}")
+                self.logger.info(f"  Using most recent: {os.path.basename(most_recent)}")
+                selected_file = most_recent
+            else:
+                selected_file = file_list[0]
+            
+            # Group by trial (remove scorer-specific parts from trial_id)
+            # Use trial_part as the key to group cameras together
+            trials[trial_part].append((cam_num, selected_file))
         
         # Sort cameras within each trial
         for trial_id in trials:
@@ -218,6 +277,7 @@ class DLCBatchProcessor:
                     continue
                 
                 scorer_name = df.columns.get_level_values('scorer')[0]
+                self.logger.info(f"    Using scorer: {scorer_name}")
                 
                 # Get track names from first file
                 if track_names is None:
@@ -714,6 +774,12 @@ Output CSV columns for each track (example for 'L1hip'):
                        help='Optimize camera selection per frame (default: enabled)')
     parser.add_argument('--no-optimize-cameras', dest='optimize_cameras', action='store_false',
                        help='Disable camera optimization, use all cameras for each frame')
+    parser.add_argument('--filtered', action='store_true', default=True,
+                       help='Use filtered H5 files (default: enabled)')
+    parser.add_argument('--no-filtered', dest='filtered', action='store_false',
+                       help='Use non-filtered H5 files')
+    parser.add_argument('--shuffle', '-s', type=int, default=1,
+                       help='Shuffle number to use (default: 1)')
     
     args = parser.parse_args()
     
@@ -728,7 +794,9 @@ Output CSV columns for each track (example for 'L1hip'):
         processor = DLCBatchProcessor(
             args.data_directory, 
             args.threshold, 
-            optimize_cameras=args.optimize_cameras
+            optimize_cameras=args.optimize_cameras,
+            use_filtered=args.filtered,
+            shuffle=args.shuffle
         )
         processor.process_all_trials()
         
