@@ -844,7 +844,7 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     try:
         # Load the first file to get structure - expects a multiindex header
         # For single animal DLC projects, this is (scorer, body part, coords (x, y, likelihood))
-        # For multi-animal DLC projects, this is (scorer, animal, body part, coords (x, y, likelihood))
+        # For multi-animal DLC projects, this is (scorer, individuals, body part, coords (x, y, likelihood))
         alldata = {}
         numframes = []
         scorers= []
@@ -909,7 +909,7 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
                     tracks = camdata.columns.get_level_values(bodypart_level).unique().tolist()
                 else:
                     raise ValueError("No bodypart level found in DLC data")
-                
+
                 #determine if multianimal dlc based on number of levels in the multiindex
                 if isinstance(camdata.columns, pandas.MultiIndex):
                     if len(camdata.columns.levels) == 3:
