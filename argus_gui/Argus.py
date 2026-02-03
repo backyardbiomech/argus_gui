@@ -197,6 +197,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.go_button.setToolTip("Start digitizing through the movies")
         self.go_button.clicked.connect(self.clicker_go)
         
+        # Create DLC labeling button
+        self.dlc_label_button = QtWidgets.QPushButton("DLC Labeling")
+        self.dlc_label_button.setToolTip("Open DeepLabCut labeled-data folder for labeling")
+        self.dlc_label_button.clicked.connect(self.launch_dlc_labeling)
+        
         # Connect cell changed signal to update offsets
         self.file_table.cellChanged.connect(self.update_offset)
         
@@ -209,6 +214,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.resolution_label, 3, 0)
         layout.addWidget(self.resolution_var, 3, 1)
         layout.addWidget(self.load_button, 5, 0)
+        layout.addWidget(self.dlc_label_button, 5, 2)
         layout.addWidget(self.go_button, 5, 4)
 
         tab = QtWidgets.QWidget()
@@ -1276,6 +1282,44 @@ class MainWindow(QtWidgets.QMainWindow):
                 None, "Error", "No movies to click through!"  # type: ignore
             )
             return
+
+    def launch_dlc_labeling(self):
+        """Launch argus-click in DLC labeling mode"""
+        # Find the argus-click script
+        script_path = os.path.join(RESOURCE_PATH, "scripts", "argus-click")
+        
+        # Check if script exists
+        if not os.path.exists(script_path):
+            QtWidgets.QMessageBox.warning(
+                None, "Error", f"Could not find argus-click script at {script_path}"
+            )
+            return
+        
+        # Get Python interpreter
+        python_exe = sys.executable
+        
+        # Launch with --dlc-label flag
+        cmd = [python_exe, script_path, "--dlc-label"]
+        
+        try:
+            if sys.platform.startswith("win"):
+                # Windows - hide console window
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    startupinfo=startupinfo,
+                )
+            else:
+                proc = subprocess.Popen(cmd)
+            
+            print("Launched DLC labeling mode")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(
+                None, "Error", f"Failed to launch DLC labeling mode: {str(e)}"
+            )
 
     ## Sync Functions
 

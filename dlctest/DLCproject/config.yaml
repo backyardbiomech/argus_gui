@@ -1,0 +1,387 @@
+# Project definitions (do not edit)
+Task: stinkbugs
+scorer: DLC
+date: Jan27
+multianimalproject: true
+identity: false
+
+
+# Project path (change when moving around)
+project_path: C:\Users\jacksonbe3\OneDrive - Longwood 
+  University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29
+
+
+# Default DeepLabCut engine to use for shuffle creation (either pytorch or tensorflow)
+engine: pytorch
+
+
+# Annotation data set configuration (and individual video cropping parameters)
+video_sets:
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_23-Feb-21_21-08-16.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_20-Jan-21_20-21-59.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_23-Feb-21_21-15-23.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_03-Feb-21_19-46-00.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_23-Feb-21_21-08-16.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_04-Mar-21_20-27-56.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_04-Mar-21_20-31-13.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_17-Mar-21_23-01-03.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_17-Mar-21_23-03-35.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_17-Mar-21_23-01-03.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_17-Mar-21_23-03-35.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_10-Feb-21_18-14-11.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_27-Jan-21_21-46-36.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_23-Feb-21_21-15-23.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_10-Feb-21_18-14-10.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_31-Mar-21_17-42-04.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_31-Mar-21_18-04-53.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_23-Feb-21_21-35-33.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_23-Feb-21_21-02-13.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_31-Mar-21_17-36-11.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_31-Mar-21_20-03-56.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_31-Mar-21_19-52-46.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_31-Mar-21_19-26-56.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_14-Sep-21_19-24-58.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_14-Sep-21_19-13-31.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_14-Sep-21_19-19-06.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_04-Mar-21_20-36-01.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_14-Sep-21_19-01-52.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_14-Sep-21_16-13-51.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_10-Feb-21_18-21-22.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_23-Feb-21_21-27-32.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_23-Feb-21_21-02-13.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_31-Mar-21_17-33-28.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_31-Mar-21_17-51-38.mov
+  : crop: 0, 1024, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_10-Feb-21_18-14-10.mov
+  : crop: 0, 1072, 0, 1024
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam2_10-Feb-21_18-30-30.mov
+  : crop: 0, 1072, 0, 1024
+  C:\Users\jubblc\Box\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_28-Oct-22_14-19-38.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\maDLCstinkbugs-DLC-2021-01-27\videos\cam1_28-Oct-22_14-31-21.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_28-Oct-22_14-25-47.mov:
+    crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_28-Oct-22_14-29-29.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_28-Oct-22_14-23-55.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Nov-22_13-49-06.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Nov-22_13-43-07.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_03-Nov-22_13-37-34.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_03-Nov-22_13-43-07.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Mar-23_17-13-52.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_03-Mar-23_17-16-23.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Mar-23_17-18-37.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Mar-23_17-20-55.mov
+  : crop: 0, 1088, 0, 864
+  ? C:\Users\jacksonbe3\Box\_Scholarship\research\studentProjects\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_03-Mar-23_17-20-55.mov
+  : crop: 0, 1088, 0, 864
+
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_24-Feb-23_18-05-53.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_17-Feb-23_18-16-04.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_24-Feb-23_18-15-16.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_24-Feb-23_18-21-24.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_03-Mar-23_17-23-16.mov:
+    crop: 0, 1088, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_07-Feb-24_14-35-09.mov:
+    crop: 0, 1280, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_07-Feb-24_14-47-22.mov:
+    crop: 0, 1280, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_14-Feb-24_19-09-33.mov:
+    crop: 0, 1280, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_14-Feb-24_19-33-34.mov:
+    crop: 0, 1280, 0, 864
+  C:\Users\jubblc\Box\StinkBugs\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_13-Mar-24_15-03-26.mov:
+    crop: 0, 1280, 0, 864
+  ? C:\Users\jubblc\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_28-Mar-24_18-00-34.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240321/set1/noL1/videos-raw/cam2_21-Mar-24_19-19-11.mov
+  : crop: 0, 1280, 0, 1024
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240321/set1/noL1/videos-raw/cam1_21-Mar-24_19-19-11.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240321/set1/noL1/videos-raw/cam2_21-Mar-24_20-17-40.mov
+  : crop: 0, 1280, 0, 1024
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240328/set1/noR1/videos-raw/cam1_28-Mar-24_17-54-34.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240328/set1/noR1/videos-raw/cam3_28-Mar-24_17-54-34.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240313/set1/noL1/videos-raw/cam3_13-Mar-24_15-20-22.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240313/set1/noL1/videos-raw/cam1_13-Mar-24_16-22-04.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240214/set1/noR1/videos-raw/cam3_14-Feb-24_19-30-19.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam2_07-Feb-24_14-53-35.mov
+  : crop: 0, 1280, 0, 1024
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam1_07-Feb-24_16-52-15.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam1_07-Feb-24_15-02-08.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam3_07-Feb-24_14-58-07.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam1_07-Feb-24_16-00-57.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam3_07-Feb-24_16-05-13.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240214/set1/noR1/videos-raw/cam3_14-Feb-24_19-14-06.mov
+  : crop: 0, 1280, 0, 864
+  ? /Users/lilianjubb/Library/CloudStorage/OneDrive-LongwoodUniversity/neurostinkbugs/data/20240207/set1/noR1/videos-raw/cam1_07-Feb-24_15-33-27.mov
+  : crop: 0, 1280, 0, 864
+
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam2_08-Sep-25_21-34-16.mov
+  : crop: 0, 1280, 0, 1024
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_22-Sep-25_21-04-58.mov
+  : crop: 0, 1280, 0, 864
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_08-Sep-25_21-34-16.mov
+  : crop: 0, 1280, 0, 864
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam2_22-Sep-25_21-04-58.mov
+  : crop: 0, 1280, 0, 1024
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam1_08-Sep-25_21-34-16.mov
+  : crop: 0, 1280, 0, 864
+  ? C:\Users\jacksonbe3\OneDrive - Longwood 
+    University\neurostinkbugs\neurostinkbugs-DLC-2023-03-29\videos\cam3_22-Sep-25_21-04-58.mov
+  : crop: 0, 1280, 0, 864
+individuals:
+- ind1
+uniquebodyparts: []
+multianimalbodyparts:
+- L1hip
+- L1knee
+- L1ankle
+- L1toe
+- L2hip
+- L2knee
+- L2ankle
+- L2toe
+- L3hip
+- L3knee
+- L3ankle
+- L3toe
+- R1hip
+- R1knee
+- R1ankle
+- R1toe
+- R2hip
+- R2knee
+- R2ankle
+- R2toe
+- R3hip
+- R3knee
+- R3ankle
+- R3toe
+- Leye
+- Reye
+- nose
+- Lantenna1
+- Lantenna2
+- Lantenna3
+- Lantenna4
+- Rantenna1
+- Rantenna2
+- Rantenna3
+- Rantenna4
+- Lbody
+- Rbody
+- rear
+- centerbody
+- Lshoulder
+- Rshoulder
+
+bodyparts: MULTI!
+
+
+# Fraction of video to start/stop when extracting frames for labeling/refinement
+start: 0.15
+stop: .85
+numframes2pick: 10
+
+
+# Plotting configuration
+skeleton:
+- - L1hip
+  - Lantenna1
+- - R3ankle
+  - R3toe
+- - L3ankle
+  - L3toe
+- - Reye
+  - Rantenna1
+- - Lantenna2
+  - Lantenna3
+- - L2hip
+  - L3hip
+- - L2knee
+  - L2ankle
+- - Rbody
+  - rear
+- - L3hip
+  - L3knee
+- - R1hip
+  - Rantenna1
+- - R2ankle
+  - R2toe
+- - R1hip
+  - R2hip
+- - Rantenna1
+  - Rantenna2
+- - Lbody
+  - rear
+- - Rantenna2
+  - Rantenna3
+- - R2hip
+  - R2knee
+- - L1knee
+  - L1ankle
+- - L2ankle
+  - L2toe
+- - Rbody
+  - centerbody
+- - R1hip
+  - R1knee
+- - R3hip
+  - R3knee
+- - Leye
+  - Lantenna1
+- - L3hip
+  - R3hip
+- - L1hip
+  - L2hip
+- - Lantenna1
+  - Lantenna2
+- - Lshoulder
+  - Rshoulder
+- - Leye
+  - Lshoulder
+- - Rbody
+  - Rshoulder
+- - Lantenna3
+  - Lantenna4
+- - L2hip
+  - L2knee
+- - rear
+  - centerbody
+- - L1hip
+  - R1hip
+- - L2hip
+  - R2hip
+- - L3knee
+  - L3ankle
+- - R1ankle
+  - R1toe
+- - L1ankle
+  - L1toe
+- - Lbody
+  - Lshoulder
+- - Rantenna3
+  - Rantenna4
+- - R2knee
+  - R2ankle
+- - L1hip
+  - L1knee
+- - nose
+  - Lantenna1
+- - R1knee
+  - R1ankle
+- - R3knee
+  - R3ankle
+- - nose
+  - Rantenna1
+- - Leye
+  - Reye
+- - Lbody
+  - centerbody
+- - R2hip
+  - R3hip
+- - Reye
+  - Rshoulder
+skeleton_color: red
+pcutoff: 0.7
+dotsize: 5
+alphavalue: 0.5
+colormap: viridis
+
+
+# Training,Evaluation and Analysis configuration
+TrainingFraction:
+- 0.95
+iteration: 26
+default_net_type: dlcrnet_ms5
+default_augmenter: multi-animal-imgaug
+default_track_method: ellipse
+snapshotindex: -1
+detector_snapshotindex: -1
+batch_size: 16
+
+
+# Cropping Parameters (for analysis and outlier frame detection)
+cropping: false
+#if cropping is true for analysis, then set the values here:
+x1: 0
+x2: 640
+y1: 277
+y2: 624
+
+
+# Refinement configuration (parameters from annotation dataset configuration also relevant in this stage)
+corner2move2:
+- 50
+- 50
+move2corner: true
+
+
+# Conversion tables to fine-tune SuperAnimal weights
+SuperAnimalConversionTables:
+detector_batch_size: 8
+croppedtraining: true
+resnet:

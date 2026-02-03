@@ -780,6 +780,13 @@ radius = 3
 thickness = 3
 dlc_likelihood_threshold = 0.9
 
+# DLC Labeling Mode
+dlc_label_mode = False  # Flag to indicate we're in DLC labeling mode
+dlc_label_frames = []  # List of frame numbers that need labeling
+dlc_folder_handler = None  # DLCLabelFolder object
+dlc_video_height = None  # Video height for coordinate conversion
+dlc_nonlabel_warning_shown = False  # Track if we've shown the non-label frame warning
+
 dlt_filename = ''
 camera_filename = ''
 
@@ -1650,11 +1657,13 @@ class ClickerWindow(pyglet.window.Window):
 
             # Draw all other tracks if displaying_all_tracks is enabled
             if displaying_all_tracks:
+                global dlc_label_mode
+                current_array_index = self.current_point_index - 1
+                
                 for other_track in self.points.keys():
                     if other_track != current_track_global:
                         try:
                             other_positions = self.points[other_track]
-                            other_non_zeros = list(set(self.points[other_track].nonzero()[0]))
                             
                             # Clear existing graphics for other tracks too
                             if other_track in self.drawn_points:
@@ -1675,38 +1684,57 @@ class ClickerWindow(pyglet.window.Window):
                                             pass
                                         self.drawn_lines[other_track][i] = None
                             
-                            # Draw points for other tracks
-                            for non_zero_value in other_non_zeros:
-                                try:
-                                    pos = other_positions[non_zero_value].toarray()[0]
-                                    if self.is_valid_position(pos):
+                            # In DLC mode, only show markers for current frame
+                            if dlc_label_mode:
+                                # Check if this track has a point at current frame
+                                if current_array_index < other_positions.shape[0]:
+                                    pos = other_positions[current_array_index].toarray()[0]
+                                    # Only draw if position is non-zero
+                                    if not np.all(pos == 0) and self.is_valid_position(pos):
                                         x, y = self.world_to_window(pos)
                                         if x is not None and y is not None and not np.isnan(x) and not np.isnan(y):
-                                            self.drawn_points[other_track][non_zero_value] = draw_circle(
+                                            # Use same radius for visibility
+                                            self.drawn_points[other_track][current_array_index] = draw_circle(
                                                 (x, y), radius,
                                                 color = colors[track_list_global.index(other_track) % len(colors)],
                                                 batch = self.track_batch
                                             )
-                                except Exception as e:
-                                    print(f"Error drawing point {non_zero_value} for {other_track} on {self.caption}: {e}")
-                            
-                            # Draw lines for other tracks
-                            for non_zero_value in other_non_zeros:
-                                if non_zero_value + 1 in other_non_zeros:
+                            else:
+                                # Normal mode: draw all points and lines for the track
+                                other_non_zeros = list(set(self.points[other_track].nonzero()[0]))
+                                
+                                # Draw points for other tracks
+                                for non_zero_value in other_non_zeros:
                                     try:
-                                        pos1 = other_positions[non_zero_value].toarray()[0]
-                                        pos2 = other_positions[non_zero_value + 1].toarray()[0]
-                                        if self.is_valid_position(pos1) and self.is_valid_position(pos2):
-                                            x1, y1 = self.world_to_window(pos1)
-                                            x2, y2 = self.world_to_window(pos2)
-                                            if all(coord is not None and not np.isnan(coord) for coord in [x1, y1, x2, y2]):
-                                                self.drawn_lines[other_track][non_zero_value] = draw_line(
-                                                    (x1, y1), (x2, y2),
+                                        pos = other_positions[non_zero_value].toarray()[0]
+                                        if self.is_valid_position(pos):
+                                            x, y = self.world_to_window(pos)
+                                            if x is not None and y is not None and not np.isnan(x) and not np.isnan(y):
+                                                self.drawn_points[other_track][non_zero_value] = draw_circle(
+                                                    (x, y), radius,
                                                     color = colors[track_list_global.index(other_track) % len(colors)],
-                                                    batch = self.track_batch                        
+                                                    batch = self.track_batch
                                                 )
                                     except Exception as e:
-                                        print(f"Error drawing line from {non_zero_value} to {non_zero_value+1} for {other_track} on {self.caption}: {e}")
+                                        print(f"Error drawing point {non_zero_value} for {other_track} on {self.caption}: {e}")
+                                
+                                # Draw lines for other tracks
+                                for non_zero_value in other_non_zeros:
+                                    if non_zero_value + 1 in other_non_zeros:
+                                        try:
+                                            pos1 = other_positions[non_zero_value].toarray()[0]
+                                            pos2 = other_positions[non_zero_value + 1].toarray()[0]
+                                            if self.is_valid_position(pos1) and self.is_valid_position(pos2):
+                                                x1, y1 = self.world_to_window(pos1)
+                                                x2, y2 = self.world_to_window(pos2)
+                                                if all(coord is not None and not np.isnan(coord) for coord in [x1, y1, x2, y2]):
+                                                    self.drawn_lines[other_track][non_zero_value] = draw_line(
+                                                        (x1, y1), (x2, y2),
+                                                        color = colors[track_list_global.index(other_track) % len(colors)],
+                                                        batch = self.track_batch                        
+                                                    )
+                                        except Exception as e:
+                                            print(f"Error drawing line from {non_zero_value} to {non_zero_value+1} for {other_track} on {self.caption}: {e}")
                         except Exception as e:
                             print(f"Error drawing track {other_track} on {self.caption}: {e}")
                             
@@ -1750,7 +1778,7 @@ class ClickerWindow(pyglet.window.Window):
     
     # only called upon loading a CSV. Pretty slow to define tons of vertices.
     def draw_tracks(self):
-        global radius
+        global radius, dlc_label_mode
         # Ensure this window's OpenGL context is valid before creating graphics objects
         if not self.ensure_valid_context():
             return
@@ -1773,55 +1801,129 @@ class ClickerWindow(pyglet.window.Window):
                 batch = self.track_batch
             )
 
-        for non_zero_value in non_zeros:
-            self.drawn_points[track][non_zero_value] = draw_circle(
-                positions[non_zero_value].toarray()[0],
-                radius,
-                color = colors[track_list_global.index(track) % len(colors)],
-                batch = self.track_batch
-            )
+        # In DLC mode, only show marker for current frame on current track
+        if dlc_label_mode:
+            # Clear all drawn points for current track first
+            if track in self.drawn_points:
+                for i, point in enumerate(self.drawn_points[track]):
+                    if point is not None:
+                        try:
+                            point.delete()
+                        except Exception:
+                            pass
+                        self.drawn_points[track][i] = None
+            
+            # Draw marker only at current frame
+            current_array_index = self.current_point_index - 1
+            if current_array_index in non_zeros:
+                self.drawn_points[track][current_array_index] = draw_circle(
+                    positions[current_array_index].toarray()[0],
+                    radius,
+                    color = colors[track_list_global.index(track) % len(colors)],
+                    batch = self.track_batch
+                )
+        else:
+            # Normal mode: show all markers and lines
+            for non_zero_value in non_zeros:
+                self.drawn_points[track][non_zero_value] = draw_circle(
+                    positions[non_zero_value].toarray()[0],
+                    radius,
+                    color = colors[track_list_global.index(track) % len(colors)],
+                    batch = self.track_batch
+                )
 
-        for non_zero_value in non_zeros:
-            if non_zero_value + 1 in non_zeros:
-                self.drawn_lines[track][non_zero_value] = draw_line(
-                        positions[non_zero_value].toarray()[0],
-                        positions[non_zero_value+1].toarray()[0],
-                        color = colors[track_list_global.index(track) % len(colors)],
-                        batch = self.track_batch                        
-                        )
+            for non_zero_value in non_zeros:
+                if non_zero_value + 1 in non_zeros:
+                    self.drawn_lines[track][non_zero_value] = draw_line(
+                            positions[non_zero_value].toarray()[0],
+                            positions[non_zero_value+1].toarray()[0],
+                            color = colors[track_list_global.index(track) % len(colors)],
+                            batch = self.track_batch                        
+                            )
 
         if displaying_all_tracks:
+            current_array_index = self.current_point_index - 1
+            
             for track in self.points.keys():
                 if track != current_track_global:
                     positions = self.points[track]
-                    non_zeros = list(set(self.points[track].nonzero()[0]))
-                    for non_zero_value in non_zeros:
-                        if non_zero_value + 1 in non_zeros:
-                            self.drawn_lines[track][non_zero_value] = draw_line(
-                                    positions[non_zero_value].toarray()[0],
-                                    positions[non_zero_value+1].toarray()[0],
+                    
+                    # In DLC mode, only show marker for current frame
+                    if dlc_label_mode:
+                        # Clear all drawn points for this track first
+                        if track in self.drawn_points:
+                            for i, point in enumerate(self.drawn_points[track]):
+                                if point is not None:
+                                    try:
+                                        point.delete()
+                                    except Exception:
+                                        pass
+                                    self.drawn_points[track][i] = None
+                        
+                        # Draw marker only for current frame
+                        if current_array_index < positions.shape[0]:
+                            pos = positions[current_array_index].toarray()[0]
+                            # Only draw if position is non-zero
+                            if not np.all(pos == 0):
+                                self.drawn_points[track][current_array_index] = draw_circle(
+                                    pos,
+                                    radius,
                                     color = colors[track_list_global.index(track) % len(colors)],
-                                    batch = self.track_batch                        
+                                    batch = self.track_batch
                                 )
+                    else:
+                        # Normal mode: show lines connecting points
+                        non_zeros = list(set(self.points[track].nonzero()[0]))
+                        for non_zero_value in non_zeros:
+                            if non_zero_value + 1 in non_zeros:
+                                self.drawn_lines[track][non_zero_value] = draw_line(
+                                        positions[non_zero_value].toarray()[0],
+                                        positions[non_zero_value+1].toarray()[0],
+                                        color = colors[track_list_global.index(track) % len(colors)],
+                                        batch = self.track_batch                        
+                                    )
                             
     # called when the user decides to display all the tracks
     def draw_all_tracks(self):
+        global dlc_label_mode
         self.update_tracks()
-        for track in self.points.keys():
-            positions = self.points[track]
-            nz = list(set(self.points[track].nonzero()[0]))
-
-            if track != current_track_global:
-                for k in nz:
-                    if k + 1 in nz:
-                        x1, y1 = self.world_to_window(positions[k].toarray()[0])
-                        x2, y2 = self.world_to_window(positions[k+1].toarray()[0])
-                        self.drawn_lines[track][k] = draw_line(
-                                    (x1, y1),
-                                    (x2, y2),
+        
+        # In DLC mode, only show markers for current frame
+        if dlc_label_mode:
+            current_array_index = self.current_point_index - 1
+            for track in self.points.keys():
+                if track != current_track_global:
+                    positions = self.points[track]
+                    # Check if this track has a point at current frame
+                    if current_array_index < positions.shape[0]:
+                        pos = positions[current_array_index].toarray()[0]
+                        # Only draw if position is non-zero
+                        if not np.all(pos == 0):
+                            x, y = self.world_to_window(pos)
+                            if x is not None and y is not None and not np.isnan(x) and not np.isnan(y):
+                                # Use same radius for visibility
+                                self.drawn_points[track][current_array_index] = draw_circle(
+                                    (x, y), radius,
                                     color = colors[track_list_global.index(track) % len(colors)],
-                                    batch = self.track_batch                        
-                            )
+                                    batch = self.track_batch
+                                )
+        else:
+            # Normal mode: draw lines connecting points
+            for track in self.points.keys():
+                positions = self.points[track]
+                nz = list(set(self.points[track].nonzero()[0]))
+
+                if track != current_track_global:
+                    for k in nz:
+                        if k + 1 in nz:
+                            x1, y1 = self.world_to_window(positions[k].toarray()[0])
+                            x2, y2 = self.world_to_window(positions[k+1].toarray()[0])
+                            self.drawn_lines[track][k] = draw_line(
+                                        (x1, y1),
+                                        (x2, y2),
+                                        color = colors[track_list_global.index(track) % len(colors)],
+                                        batch = self.track_batch                        
+                                )
 
         self.update_drawings()
         
@@ -1842,7 +1944,7 @@ class ClickerWindow(pyglet.window.Window):
     # called when the user changes tracks
     def change_track(self, old_track):
         #radius = 2
-        global radius
+        global radius, dlc_label_mode
         
         # Ensure we have a valid context for this window before changing tracks
         if not self.safe_switch_to():
@@ -1859,11 +1961,13 @@ class ClickerWindow(pyglet.window.Window):
             return
             
         try:
-            # remove the points from the old track
-            for k in range(len(self.drawn_points[old_track])):
-                if self.drawn_points[old_track][k] is not None:
-                    self.drawn_points[old_track][k].delete()
-                    self.drawn_points[old_track][k] = None
+            # In DLC mode, keep the old track's markers (don't delete them)
+            # In normal mode, remove the points from the old track
+            if not dlc_label_mode:
+                for k in range(len(self.drawn_points[old_track])):
+                    if self.drawn_points[old_track][k] is not None:
+                        self.drawn_points[old_track][k].delete()
+                        self.drawn_points[old_track][k] = None
 
             # remove lines from old track if not being displayed
             if not displaying_all_tracks:
@@ -1888,16 +1992,28 @@ class ClickerWindow(pyglet.window.Window):
                 )
             
             # draw markers for new current track
-            for k in nz:
-                x, y = self.world_to_window(positions[k].toarray()[0])
-                self.drawn_points[current_track_global][k] = draw_circle(
-                    (x, y), radius, 
-                    color = colors[track_list_global.index(current_track_global) % 4], 
-                    batch = self.track_batch
-                )
+            # In DLC mode, only draw marker for current frame
+            if dlc_label_mode:
+                current_array_index = self.current_point_index - 1
+                if current_array_index in nz:
+                    x, y = self.world_to_window(positions[current_array_index].toarray()[0])
+                    self.drawn_points[current_track_global][current_array_index] = draw_circle(
+                        (x, y), radius, 
+                        color = colors[track_list_global.index(current_track_global) % 4], 
+                        batch = self.track_batch
+                    )
+            else:
+                # Normal mode: draw all markers
+                for k in nz:
+                    x, y = self.world_to_window(positions[k].toarray()[0])
+                    self.drawn_points[current_track_global][k] = draw_circle(
+                        (x, y), radius, 
+                        color = colors[track_list_global.index(current_track_global) % 4], 
+                        batch = self.track_batch
+                    )
             
             # add line for new current track (not needed if displaying all tracks because it's already drawn)
-            if not displaying_all_tracks:
+            if not displaying_all_tracks and not dlc_label_mode:
                 for k in nz:
                     if k + 1 in nz:
                         x1, y1 = self.world_to_window(positions[k].toarray()[0])
@@ -2027,19 +2143,33 @@ class ClickerWindow(pyglet.window.Window):
                     
         #update all track lines if needed
         if self.draw_all_tracks:
+            global dlc_label_mode
             for other_track in self.points.keys():
                 if other_track != track:
                     positions = self.points[other_track].toarray()
-                    nz = list(set(self.points[other_track].nonzero()[0]))
-                    for k in nz:
-                        if k + 1 in nz:
-                            if self.drawn_lines[other_track][k] is not None:
-                                x1, y1 = self.world_to_window(positions[k])
-                                x2, y2 = self.world_to_window(positions[k+1])
-                                self.drawn_lines[other_track][k].x = x1
-                                self.drawn_lines[other_track][k].y = y1
-                                self.drawn_lines[other_track][k].x2 = x2
-                                self.drawn_lines[other_track][k].y2 = y2
+                    
+                    # In DLC mode, update markers for current frame only
+                    if dlc_label_mode:
+                        if new_point_index < len(positions):
+                            if other_track in self.drawn_points and self.drawn_points[other_track][new_point_index] is not None:
+                                try:
+                                    tx_x, tx_y = self.world_to_window(positions[new_point_index])
+                                    self.drawn_points[other_track][new_point_index].x = tx_x
+                                    self.drawn_points[other_track][new_point_index].y = tx_y
+                                except Exception as e:
+                                    print(f"Error updating point for {other_track}: {e}")
+                    else:
+                        # Normal mode: update lines
+                        nz = list(set(self.points[other_track].nonzero()[0]))
+                        for k in nz:
+                            if k + 1 in nz:
+                                if self.drawn_lines[other_track][k] is not None:
+                                    x1, y1 = self.world_to_window(positions[k])
+                                    x2, y2 = self.world_to_window(positions[k+1])
+                                    self.drawn_lines[other_track][k].x = x1
+                                    self.drawn_lines[other_track][k].y = y1
+                                    self.drawn_lines[other_track][k].x2 = x2
+                                    self.drawn_lines[other_track][k].y2 = y2
                             
         #update dlt line drawings
         if DLTCoefficients is not None:
@@ -2151,7 +2281,7 @@ class ClickerWindow(pyglet.window.Window):
 
     def change_marker(self):
         #  updates current marker with highlight
-        global radius
+        global radius, dlc_label_mode, displaying_all_tracks
         self.update_tracks()
         track = current_track_global
 
@@ -2192,6 +2322,61 @@ class ClickerWindow(pyglet.window.Window):
                 print(f"Error creating marker for {self.caption}: {e}")
                 self.current_marker = None
         
+        # In DLC mode, update current track's regular marker too
+        if dlc_label_mode:
+            current_array_index = self.current_point_index - 1
+            
+            # Clear all markers for current track first
+            if track in self.drawn_points:
+                for i, point in enumerate(self.drawn_points[track]):
+                    if point is not None:
+                        try:
+                            point.delete()
+                        except Exception:
+                            pass
+                        self.drawn_points[track][i] = None
+            
+            # Draw marker at current frame for current track
+            if current_array_index in non_zero_points:
+                try:
+                    x, y = self.world_to_window(positions[current_array_index].toarray()[0])
+                    self.drawn_points[track][current_array_index] = draw_circle(
+                        (x, y), radius,
+                        color = colors[track_list_global.index(track) % len(colors)],
+                        batch = self.track_batch
+                    )
+                except Exception as e:
+                    print(f"Error drawing current track marker: {e}")
+        
+        # In DLC mode with all tracks displayed, redraw all track markers for current frame
+        if dlc_label_mode and displaying_all_tracks:
+            for other_track in self.points.keys():
+                if other_track != track:
+                    # Clear old markers for this track
+                    if other_track in self.drawn_points:
+                        for i, point in enumerate(self.drawn_points[other_track]):
+                            if point is not None:
+                                try:
+                                    point.delete()
+                                except Exception:
+                                    pass
+                                self.drawn_points[other_track][i] = None
+                    
+                    # Draw marker at current frame
+                    other_positions = self.points[other_track]
+                    if current_array_index < other_positions.shape[0]:
+                        pos = other_positions[current_array_index].toarray()[0]
+                        if not np.all(pos == 0):
+                            try:
+                                x, y = self.world_to_window(pos)
+                                self.drawn_points[other_track][current_array_index] = draw_circle(
+                                    (x, y), radius,
+                                    color = colors[track_list_global.index(other_track) % len(colors)],
+                                    batch = self.track_batch
+                                )
+                            except Exception as e:
+                                print(f"Error drawing marker for {other_track}: {e}")
+        
         # On macOS, force a redraw to ensure the marker is visible
         if sys.platform == 'darwin':
             try:
@@ -2206,6 +2391,7 @@ class ClickerWindow(pyglet.window.Window):
         Check for graphics corruption and recover if needed.
         Call this after track changes or frame changes that might result in missing data.
         """
+        global dlc_label_mode
         try:
             # Ensure we have a valid context for THIS window before doing anything
             if not self.safe_switch_to():
@@ -2236,17 +2422,28 @@ class ClickerWindow(pyglet.window.Window):
                         # Check if we have any points for this track
                         non_zero_points = list(set(positions.nonzero()[0]))
                         if non_zero_points:
-                            # Check if graphics objects exist for the points we should have
+                            # In DLC mode, only check current frame marker
+                            # In normal mode, check all markers
                             if track in self.drawn_points:
-                                missing_graphics = 0
-                                for point_idx in non_zero_points:
-                                    if (point_idx >= len(self.drawn_points[track]) or 
-                                        self.drawn_points[track][point_idx] is None):
-                                        missing_graphics += 1
-                                
-                                if missing_graphics > 0:
-                                    print(f"Missing {missing_graphics} graphics objects for track {track} in {self.caption}, triggering recovery")
-                                    needs_recovery = True
+                                if dlc_label_mode:
+                                    # Only check if current frame marker exists
+                                    current_idx = frame - 1
+                                    if current_idx in non_zero_points:
+                                        if (current_idx >= len(self.drawn_points[track]) or 
+                                            self.drawn_points[track][current_idx] is None):
+                                            print(f"Missing current frame marker for track {track} in {self.caption}, triggering recovery")
+                                            needs_recovery = True
+                                else:
+                                    # Normal mode: check all markers
+                                    missing_graphics = 0
+                                    for point_idx in non_zero_points:
+                                        if (point_idx >= len(self.drawn_points[track]) or 
+                                            self.drawn_points[track][point_idx] is None):
+                                            missing_graphics += 1
+                                    
+                                    if missing_graphics > 0:
+                                        print(f"Missing {missing_graphics} graphics objects for track {track} in {self.caption}, triggering recovery")
+                                        needs_recovery = True
                             else:
                                 print(f"No graphics data for track {track} in {self.caption}, triggering recovery")
                                 needs_recovery = True
@@ -2263,8 +2460,8 @@ class ClickerWindow(pyglet.window.Window):
                 # Recreate track data structures if needed
                 self.update_tracks()
                 
-                # Redraw everything for this window only
-                self.draw_tracks_safe()
+                # Redraw everything for this window - use draw_tracks() to respect DLC mode
+                self.draw_tracks()
                 self.change_marker()
                 
                 # Mark for redraw
@@ -2278,10 +2475,12 @@ class ClickerWindow(pyglet.window.Window):
                 if self.safe_switch_to():
                     self.clear_track_graphics()
                     self.update_tracks()
-                    self.draw_tracks_safe()
+                    self.draw_tracks()
                     self.change_marker()
                     self.changed = True
                     print(f"Fallback recovery completed for {self.caption}")
+            except Exception as fallback_error:
+                print(f"Fallback recovery failed for {self.caption}: {fallback_error}")
             except Exception as fallback_error:
                 print(f"Fallback recovery also failed for {self.caption}: {fallback_error}")
 
@@ -2638,9 +2837,20 @@ class ClickerWindow(pyglet.window.Window):
             
         if not busy:
             # if not self.base:
+            # Add DLC label frame indicator if in DLC mode
+            global dlc_label_mode, dlc_label_frames
+            label_indicator = ""
+            # current_point_index is 1-indexed, but dlc_label_frames contains the array indices
+            if dlc_label_mode and dlc_label_frames and (self.current_point_index - 1) in dlc_label_frames:
+                label_indicator = " [LABEL FRAME]"
+            
             self.set_caption(
-                '{0} - Frame {1}, Offset: {2} - Track: {3}'.format(self.movie.split('/')[-1], self.current_point_index,
-                                                                self.frameFinder.offset, current_track_global))
+                '{0} - Frame {1}, Offset: {2} - Track: {3}{4}'.format(
+                    self.movie.split('/')[-1], 
+                    self.current_point_index,
+                    self.frameFinder.offset, 
+                    current_track_global,
+                    label_indicator))
         else:
             self.set_caption('{0} - Working...'.format(self.movie.split('/')[-1]))
 
@@ -3263,6 +3473,64 @@ class ClickerWindow(pyglet.window.Window):
         except Exception as e:
             print(f"Error extracting camera data for camera {window.actual_camera_number}: {e}")
             return None
+    
+    def save_dlc_label_mode(self):
+        """Save data in DLC labeling mode - saves back to the original CollectedData file"""
+        global dlc_folder_handler, dlc_video_height
+        
+        if not dlc_folder_handler:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                "No DLC folder loaded. Cannot save in DLC label mode.")
+            return
+        
+        try:
+            # Get all camera windows
+            video_windows = [window for window in pyglet.app.windows if isinstance(window, ClickerWindow)]
+            
+            if not video_windows or len(video_windows) != 1:
+                QtWidgets.QMessageBox.warning(None, "Error", 
+                    "DLC labeling mode currently supports single camera only.")
+                return
+            
+            window = video_windows[0]
+            
+            # Fill common dictionary with all data
+            window.fill_common_dictionary()
+            
+            # Get video height for coordinate conversion
+            if dlc_video_height is None:
+                dlc_video_height = window.frameFinder.oh
+            
+            # Convert Argus data to numpy array format
+            # common dict has keys like 'track_cam_1_x', 'track_cam_1_y'
+            tracks = dlc_folder_handler.get_tracks_for_argus()
+            max_frames = window.end
+            
+            # Create array (frames x (tracks * 2))
+            argus_data = np.zeros((max_frames + 1, len(tracks) * 2))
+            
+            for track_idx, track in enumerate(tracks):
+                col_offset = track_idx * 2
+                x_key = f"{track}_cam_1_x"
+                y_key = f"{track}_cam_1_y"
+                
+                if x_key in common and y_key in common:
+                    x_data = common[x_key]
+                    y_data = common[y_key]
+                    # Handle potential size mismatch
+                    min_len = min(len(x_data), max_frames + 1)
+                    argus_data[:min_len, col_offset] = x_data[:min_len]
+                    argus_data[:min_len, col_offset + 1] = y_data[:min_len]
+            
+            # Save using DLC folder handler
+            dlc_folder_handler.save_to_dlc_format(argus_data, dlc_video_height)
+            
+            QtWidgets.QMessageBox.information(None, "Success", 
+                f"Successfully saved DLC labels to:\n{dlc_folder_handler.collected_data_path}")
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                f"Failed to save DLC labels: {str(e)}")
         
     # pretty self explanatory
     def updateSelf(self):
@@ -3569,6 +3837,8 @@ class ClickerWindow(pyglet.window.Window):
         global rgb
         global vx
         global vy
+        global dlc_label_mode
+        global dlc_label_frames
 
         # brings up options dialog
         if symbol == key.O:
@@ -3752,7 +4022,11 @@ class ClickerWindow(pyglet.window.Window):
                 saveas = False
 
             self.toggleBusy()
-            if outputDLC:
+            # Check if in DLC label mode
+            global dlc_label_mode
+            if dlc_label_mode:
+                self.save_dlc_label_mode()
+            elif outputDLC:
                 self.save_dlc(saveas)
             elif outputSparse:
                 self.save_sparse(saveas)
@@ -3774,28 +4048,58 @@ class ClickerWindow(pyglet.window.Window):
                 if hasattr(window, 'auto_focus'):
                     window.auto_focus = not window.auto_focus
             print(f"Auto-focus {'enabled' if self.auto_focus else 'disabled'} for all windows")
-        # skip to next marked point
+        # skip to next marked point or next DLC label frame (with Shift)
         elif symbol == key.RIGHT:
-            for k in range(self.current_point_index, self.points[current_track_global].shape[0]):
-                if np.all(self.points[current_track_global][k].toarray()[0] != 0):
-                    self.current_point_index = k + 1
+            # DLC mode: Shift+Right arrow goes to next label frame
+            if modifiers & key.MOD_SHIFT and dlc_label_mode and dlc_label_frames:
+                # Find next label frame after current position
+                # Note: current_point_index is 1 higher than the array index
+                next_frames = [f for f in dlc_label_frames if f >= self.current_point_index]
+                if next_frames:
+                    # Add 1 because current_point_index is 1-indexed (array access uses -1)
+                    self.current_point_index = next_frames[0] + 1
                     current_frame = self.current_point_index
                     self.change_marker()
                     if sync:
                         self.update_all_windows()
                     self.changed = True
-                    break
-        # skip to previously marked point
+            # Normal mode: skip to next marked point in current track
+            else:
+                for k in range(self.current_point_index, self.points[current_track_global].shape[0]):
+                    if np.all(self.points[current_track_global][k].toarray()[0] != 0):
+                        self.current_point_index = k + 1
+                        current_frame = self.current_point_index
+                        self.change_marker()
+                        if sync:
+                            self.update_all_windows()
+                        self.changed = True
+                        break
+        # skip to previously marked point or previous DLC label frame (with Shift)
         elif symbol == key.LEFT:
-            for k in range(2, self.current_point_index):
-                if np.all(self.points[current_track_global][self.current_point_index - k].toarray()[0] != 0):
-                    self.current_point_index = self.current_point_index - k + 1
+            # DLC mode: Shift+Left arrow goes to previous label frame
+            if modifiers & key.MOD_SHIFT and dlc_label_mode and dlc_label_frames:
+                # Find previous label frame before current position
+                # Note: current_point_index is 1 higher than the array index
+                prev_frames = [f for f in dlc_label_frames if f <= self.current_point_index - 2]
+                if prev_frames:
+                    # Add 1 because current_point_index is 1-indexed (array access uses -1)
+                    self.current_point_index = prev_frames[-1] + 1
                     current_frame = self.current_point_index
                     self.change_marker()
                     if sync:
                         self.update_all_windows()
                     self.changed = True
-                    break
+            # Normal mode: skip to previously marked point
+            else:
+                for k in range(2, self.current_point_index):
+                    if np.all(self.points[current_track_global][self.current_point_index - k].toarray()[0] != 0):
+                        self.current_point_index = self.current_point_index - k + 1
+                        current_frame = self.current_point_index
+                        self.change_marker()
+                        if sync:
+                            self.update_all_windows()
+                        self.changed = True
+                        break
         elif symbol == key.UP:
             # if not self.base:
             self.frameFinder.offset = self.frameFinder.offset + 1
@@ -3953,6 +4257,7 @@ class ClickerWindow(pyglet.window.Window):
         global track_list_global
         global current_track_global
         global current_frame
+        global dlc_label_mode, dlc_label_frames, dlc_nonlabel_warning_shown
         
         # Ensure this window's OpenGL context is active
         if not self.safe_switch_to():
@@ -3960,6 +4265,17 @@ class ClickerWindow(pyglet.window.Window):
         
         if buttons & mouse.LEFT:
             if current_track_global != '' and (modifiers == 16 or modifiers == 0):
+                # Check if in DLC mode and clicking on non-label frame
+                if dlc_label_mode and dlc_label_frames:
+                    current_array_index = self.current_point_index - 1
+                    if current_array_index not in dlc_label_frames and not dlc_nonlabel_warning_shown:
+                        dlc_nonlabel_warning_shown = True
+                        QtWidgets.QMessageBox.warning(None, "Non-Label Frame",
+                            "You are adding a point to a frame that is not in the DLC label list.\n\n"
+                            "This point will NOT be saved when you save the DLC data.\n\n"
+                            "Only frames selected by DeepLabCut for labeling will be saved.\n\n"
+                            "Use Shift+Arrow keys to navigate to label frames.")
+                
                 ptx, pty = self.window_to_world((float(x), float(y)))
                 print(f"Drawing point at ({ptx:.2f}, {pty:.2f}) on camera {self.actual_camera_number}")
                 self.draw_new_point(ptx, pty)
@@ -4341,6 +4657,180 @@ def load_from_config(path):
     pyglet.app.run()
 
 
+def launch_dlc_label_mode(folder_path=None):
+    """
+    Launch argus-click in DLC labeling mode.
+    Prompts user to select a DLC labeled-data folder and opens the video for labeling.
+    
+    Args:
+        folder_path: Optional path to DLC labeled-data folder. If None, shows file dialog.
+    """
+    global dlc_label_mode, dlc_label_frames, dlc_folder_handler, dlc_video_height
+    global load_data_global, no_cameras_global, track_list_global, current_track_global
+    global rgb
+    
+    # Import DLC module
+    try:
+        from argus_gui.DLCclicker import DLCLabelFolder, select_dlc_label_folder
+    except ImportError:
+        try:
+            # Try alternative import path for development
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+            from argus_gui.DLCclicker import DLCLabelFolder, select_dlc_label_folder
+        except ImportError:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                "Could not import DLCclicker module. Please ensure argus_gui is properly installed.")
+            return
+    
+    # Start QT app for dialogs
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication([])
+    
+    # Get DLC folder - either from parameter or dialog
+    if folder_path:
+        print(f"Loading DLC folder: {folder_path}")
+        try:
+            from pathlib import Path
+            folder_path = Path(folder_path)
+            if not folder_path.exists():
+                QtWidgets.QMessageBox.warning(None, "Error", 
+                    f"Folder does not exist: {folder_path}")
+                return
+            dlc_folder_handler = DLCLabelFolder(folder_path)
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                f"Failed to load DLC folder: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return
+    else:
+        # Select DLC folder via dialog
+        print("Select a DLC labeled-data folder...")
+        dlc_folder_handler = select_dlc_label_folder()
+        
+        if not dlc_folder_handler:
+            print("No folder selected. Exiting.")
+            return
+    
+    try:
+        # Load DLC data
+        print(f"Loading data from {dlc_folder_handler.folder_path}...")
+        dlc_folder_handler.load_data()
+        
+        # Find video
+        video_path = dlc_folder_handler.find_video(prompt_user=True)
+        if not video_path:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                "No video file found or selected. Cannot proceed.")
+            return
+        
+        print(f"Video: {video_path}")
+        print(f"Frames to label: {dlc_folder_handler.label_frames}")
+        print(f"Tracks: {dlc_folder_handler.get_tracks_for_argus()}")
+        
+        # Set up DLC label mode
+        dlc_label_mode = True
+        dlc_label_frames = dlc_folder_handler.label_frames
+        
+        # Set up track list
+        track_list_global = dlc_folder_handler.get_tracks_for_argus()
+        current_track_global = track_list_global[0] if track_list_global else ''
+        
+        # Create a single window for the video
+        no_cameras_global = 1
+        
+        # Get video properties
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                f"Could not open video: {video_path}")
+            return
+        
+        dlc_video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        
+        print(f"Video size: {video_width}x{dlc_video_height}, Frames: {frame_count}")
+        
+        # Convert DLC data to Argus format
+        argus_data = dlc_folder_handler.convert_to_argus_format(dlc_video_height)
+        
+        # Convert to sparse matrix
+        from scipy.sparse import csc_matrix
+        load_data_global = csc_matrix(argus_data, dtype=np.float32)
+        
+        print(f"Loaded data shape: {load_data_global.shape}")
+        
+        # Create window
+        offsets = [0]  # Single camera, no offset
+        factor = 1  # Full resolution
+        
+        try:
+            window = ClickerWindow(
+                video_path, 
+                offsets=offsets, 
+                actual_camera_number=1, 
+                end=frame_count,
+                factor=factor,
+                last=True,
+                auto_focus=False
+            )
+            
+            # Disable auto advance for DLC labeling mode
+            global auto_advance, displaying_all_tracks
+            auto_advance = False
+            # Enable display all tracks by default in DLC mode
+            displaying_all_tracks = True
+            
+            # Load the points
+            window.update_tracks()
+            window.load_points()
+            window.updateSelf()
+            
+            # Go to first label frame if available
+            if dlc_label_frames:
+                # Add 1 because current_point_index is 1-indexed (array access uses -1)
+                window.go_to_frame(dlc_label_frames[0] + 1)
+            
+            # Trigger redraw to show all tracks
+            window.changed = True
+            window.updateSelf()
+            
+            print("\nDLC Labeling Mode Active!")
+            print("Controls:")
+            print("  Shift+Right Arrow: Jump to next label frame")
+            print("  Shift+Left Arrow: Jump to previous label frame")
+            print("  Click to add/edit labels")
+            print("  S: Save to DLC format")
+            print("  O: Options menu")
+            print("  Note: Auto-advance frames is disabled in DLC mode")
+            print("\n")
+            
+            # Schedule check to close
+            if sys.platform == 'win32':
+                pyglet.clock.schedule_once(check_to_close, .5)
+            
+            # Run the app
+            pyglet.app.run()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(None, "Error", 
+                f"Failed to create window: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return
+            
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(None, "Error", 
+            f"Failed to load DLC data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return
+
+
 if __name__ == '__main__':
     movies_global = None
     
@@ -4359,8 +4849,14 @@ if __name__ == '__main__':
     app = QtWidgets.QApplication.instance()
     if app is None:
         app = QtWidgets.QApplication([])
+    
+    # Check for DLC labeling mode
+    if len(sys.argv) > 1 and sys.argv[1] == "--dlc-label":
+        # Check if folder path was provided as second argument
+        folder_path = sys.argv[2] if len(sys.argv) > 2 else None
+        launch_dlc_label_mode(folder_path)
         
-    if sys.argv[1].startswith("configload@"):
+    elif sys.argv[1].startswith("configload@"):
         config_path = sys.argv[1].split("@")[1]
         # Normalize the path for Windows compatibility
         config_path = os.path.normpath(config_path)
