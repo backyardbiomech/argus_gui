@@ -41,6 +41,7 @@ setup(
         "pyqtgraph >= 0.13.7",
         "imageio >= 2.0.0",
         "imageio-ffmpeg",
+        "tables",
         ],
     # Note: dependency_links is deprecated, use modern dependency management
     # dependency_links=[

@@ -53,6 +53,7 @@ dependencies = [
     "pyqtgraph >= 0.13.7",
     "imageio >= 2.0.0",
     "imageio-ffmpeg",
+    "tables",
 ]
 
 [project.urls]
