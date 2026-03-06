@@ -282,7 +282,7 @@ class OptionsPopupWindow(QtWidgets.QDialog):
     """
 
 #options popup dialog start    
-    def __init__(self, sync, auto, track_list, track, disp, bstrap, o_sparse, o_dlc, rgb, radius, thickness, parent=None):
+    def __init__(self, sync, auto, track_list, track, disp, bstrap, o_sparse, o_dlc, rgb, radius, thickness, scroll_zoom=False, parent=None):
 
         super().__init__(parent)
         self.setWindowTitle("Options")
@@ -325,6 +325,9 @@ class OptionsPopupWindow(QtWidgets.QDialog):
         self.thickness_label = QtWidgets.QLabel("Track line thickness")
         self.thickness = QtWidgets.QSpinBox()
         self.thickness.setValue(thickness)
+
+        self.scroll_zoom = QtWidgets.QCheckBox("Enable zoom by scrolling")
+        self.scroll_zoom.setChecked(scroll_zoom)
 
         self.bstrap = QtWidgets.QCheckBox("Save 95% CIs, spline filtering weights,\nand error tolerance")
         self.bstrap.setChecked(bstrap)
@@ -410,22 +413,23 @@ class OptionsPopupWindow(QtWidgets.QDialog):
         layout.addWidget(self.colorbox, 9, 0, QtCore.Qt.AlignRight)
         layout.addWidget(self.thickness_label, 9, 1)
         layout.addWidget(self.thickness, 9, 2)
+        layout.addWidget(self.scroll_zoom, 10, 0)
         
-        layout.addWidget(divider2, 10, 0, 1, 3)
-        layout.addWidget(outlabel, 11, 0, 1, 3)
-        layout.addWidget(self.bstrap, 12, 0)
-        layout.addWidget(self.formatlabel, 13, 0)
-        layout.addWidget(self.formatbox, 13, 0, QtCore.Qt.AlignRight)
-        layout.addWidget(self.savelabel, 14, 0)
-        layout.addWidget(self.fnam, 15, 0, 1, 2)
-        layout.addWidget(self.save_button, 15, 2)
+        layout.addWidget(divider2, 11, 0, 1, 3)
+        layout.addWidget(outlabel, 12, 0, 1, 3)
+        layout.addWidget(self.bstrap, 13, 0)
+        layout.addWidget(self.formatlabel, 14, 0)
+        layout.addWidget(self.formatbox, 14, 0, QtCore.Qt.AlignRight)
+        layout.addWidget(self.savelabel, 15, 0)
+        layout.addWidget(self.fnam, 16, 0, 1, 2)
+        layout.addWidget(self.save_button, 16, 2)
         
-        layout.addWidget(divider3, 16, 0, 1, 3)
-        layout.addWidget(dlclabel, 17, 0, 1, 3)
-        layout.addWidget(self.dlc_likelihood_label, 18, 0)
-        layout.addWidget(self.dlc_likelihood_input, 18, 1)
-        layout.addWidget(self.dlc_button, 19, 0, 1, 3)
-        layout.addWidget(self.okbutton, 20, 2)
+        layout.addWidget(divider3, 17, 0, 1, 3)
+        layout.addWidget(dlclabel, 18, 0, 1, 3)
+        layout.addWidget(self.dlc_likelihood_label, 19, 0)
+        layout.addWidget(self.dlc_likelihood_input, 19, 1)
+        layout.addWidget(self.dlc_button, 20, 0, 1, 3)
+        layout.addWidget(self.okbutton, 21, 2)
 
     def accept(self):
         """Override accept to save the likelihood threshold value and re-filter DLC data if needed"""
@@ -779,6 +783,7 @@ vh = 15
 radius = 3
 thickness = 3
 dlc_likelihood_threshold = 0.9
+scroll_zoom_enabled = False  # Zoom by scrolling is disabled by default
 
 # DLC Labeling Mode
 dlc_label_mode = False  # Flag to indicate we're in DLC labeling mode
@@ -2614,7 +2619,8 @@ class ClickerWindow(pyglet.window.Window):
                 
     # Zooms in using OpenGL.  Has bounds so that none of the screen ever has blank space
     def on_mouse_scroll(self, x, y, dx, dy):
-        self.zoom_vid(x, y, dy)
+        if scroll_zoom_enabled:
+            self.zoom_vid(x, y, dy)
         
     def zoom_vid(self, x, y, zm):
         # Get scale factor
@@ -3525,8 +3531,12 @@ class ClickerWindow(pyglet.window.Window):
             # Save using DLC folder handler
             dlc_folder_handler.save_to_dlc_format(argus_data, dlc_video_height)
             
-            QtWidgets.QMessageBox.information(None, "Success", 
-                f"Successfully saved DLC labels to:\n{dlc_folder_handler.collected_data_path}")
+            # collected_data_path may be None (machine-labels-only case); use the
+            # resolved path that save_to_dlc_format would have written to instead.
+            saved_path = (dlc_folder_handler.collected_data_path
+                          or dlc_folder_handler.folder_path / "CollectedData_DLC.h5")
+            QtWidgets.QMessageBox.information(None, "Success",
+                f"Successfully saved DLC labels to:\n{saved_path}")
             
         except Exception as e:
             QtWidgets.QMessageBox.warning(None, "Error", 
@@ -3646,6 +3656,7 @@ class ClickerWindow(pyglet.window.Window):
         global vy
         global radius
         global thickness
+        global scroll_zoom_enabled
 
         self.toggleBusy()
 
@@ -3654,10 +3665,11 @@ class ClickerWindow(pyglet.window.Window):
         app = QtWidgets.QApplication.instance()
         if app is None:
             app = QtWidgets.QApplication([])
-        w = OptionsPopupWindow(sync, auto_advance, track_list_global, current_track_global, displaying_all_tracks, bstrap, outputSparse, outputDLC, rgb, radius, thickness)
+        w = OptionsPopupWindow(sync, auto_advance, track_list_global, current_track_global, displaying_all_tracks, bstrap, outputSparse, outputDLC, rgb, radius, thickness, scroll_zoom=scroll_zoom_enabled)
         if w.exec() == QtWidgets.QDialog.Accepted:
             auto_advance = w.auto.isChecked()
             sync = w.sync.isChecked()
+            scroll_zoom_enabled = w.scroll_zoom.isChecked()
             new_disp = w.disp.isChecked()
             bstrap = w.bstrap.isChecked()
             outputSparse = w.o_sparse

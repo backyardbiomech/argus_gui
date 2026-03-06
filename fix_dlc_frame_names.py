@@ -114,7 +114,8 @@ def fix_h5_file(
     video_folder: Path,
     dry_run: bool = False,
 ) -> bool:
-    """Fix frame names in *h5_path* to match PNGs in *video_folder*.
+    """Fix frame names in *h5_path* to match PNGs in *video_folder*, and drop
+    any rows whose referenced PNG does not exist on disk.
 
     Returns ``True`` if any changes were (or would be) made.
     """
@@ -123,37 +124,68 @@ def fix_h5_file(
         print(f"    [skip] No PNG files found in {video_folder.name}")
         return False
 
+    # Full set of PNG filenames present on disk
+    png_filenames = set(frame_map.values())
+
     df = pd.read_hdf(h5_path)
 
     new_index_entries = []
-    changed_count = 0
+    keep_mask = []      # True = keep this row
+    rename_count = 0
+    drop_count = 0
 
     for idx in df.index:
         new_idx, changed = fix_index_entry(idx, frame_map)
-        new_index_entries.append(new_idx)
-        if changed:
-            # Extract old/new filename for the log message
-            old_name = idx[-1] if isinstance(idx, tuple) else str(idx).replace("\\", "/").split("/")[-1]
-            new_name = new_idx[-1] if isinstance(new_idx, tuple) else str(new_idx).replace("\\", "/").split("/")[-1]
-            frame_str = re.search(r"(\d+)", old_name).group(1)
-            print(f"    frame {frame_str:>6}: {old_name!r:30s} -> {new_name!r}")
-            changed_count += 1
 
-    if changed_count == 0:
+        # Determine the (possibly corrected) image filename
+        corrected_name = (
+            new_idx[-1] if isinstance(new_idx, tuple)
+            else str(new_idx).replace("\\", "/").split("/")[-1]
+        )
+
+        if corrected_name not in png_filenames:
+            # No PNG on disk for this row – drop it
+            old_name = (
+                idx[-1] if isinstance(idx, tuple)
+                else str(idx).replace("\\", "/").split("/")[-1]
+            )
+            print(f"    DROP  {old_name!r}  (PNG not found on disk)")
+            keep_mask.append(False)
+            new_index_entries.append(new_idx)
+            drop_count += 1
+        else:
+            keep_mask.append(True)
+            new_index_entries.append(new_idx)
+            if changed:
+                old_name = (
+                    idx[-1] if isinstance(idx, tuple)
+                    else str(idx).replace("\\", "/").split("/")[-1]
+                )
+                frame_str = re.search(r"(\d+)", old_name).group(1)
+                print(f"    frame {frame_str:>6}: {old_name!r:30s} -> {corrected_name!r}")
+                rename_count += 1
+
+    if rename_count == 0 and drop_count == 0:
         print(f"    [ok]  No changes needed in {h5_path.name}")
         return False
 
-    print(f"    {changed_count} frame name(s) will be updated")
+    if rename_count:
+        print(f"    {rename_count} frame name(s) will be updated")
+    if drop_count:
+        print(f"    {drop_count} row(s) with missing PNGs will be dropped")
 
     if dry_run:
         print(f"    [dry-run] Would save {h5_path.name} and matching .csv")
         return True
 
-    # Apply new index
+    # Apply filtered + corrected index
+    kept_indices = [e for e, keep in zip(new_index_entries, keep_mask) if keep]
+    df = df.iloc[[i for i, keep in enumerate(keep_mask) if keep]]
+
     if isinstance(df.index, pd.MultiIndex):
-        df.index = pd.MultiIndex.from_tuples(new_index_entries, names=df.index.names)
+        df.index = pd.MultiIndex.from_tuples(kept_indices, names=df.index.names)
     else:
-        df.index = pd.Index(new_index_entries, name=df.index.name)
+        df.index = pd.Index(kept_indices, name=df.index.name)
 
     # Save h5
     df.to_hdf(h5_path, key="df_with_missing", mode="w")

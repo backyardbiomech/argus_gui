@@ -71,8 +71,9 @@ class DLCLabelFolder:
         # Find CollectedData file
         collected_data_files = sorted(self.folder_path.glob("CollectedData*.h5"), key=lambda p: p.name)
         if not collected_data_files:
-            raise FileNotFoundError(f"No CollectedData*.h5 file found in {self.folder_path}")
-        if len(collected_data_files) == 1:
+            # No CollectedData file found – will fall back to machine labels if available
+            pass
+        elif len(collected_data_files) == 1:
             self.collected_data_path = collected_data_files[0]
         else:
             # Multiple CollectedData files – ask the user which one to use
@@ -105,96 +106,148 @@ class DLCLabelFolder:
                 except:
                     return 0
             self.machine_labels_paths = sorted(machine_labels_files, key=get_iter_num)
+
+        # Ensure at least one data source is available
+        if self.collected_data_path is None and not self.machine_labels_paths:
+            raise FileNotFoundError(
+                f"No CollectedData*.h5 or machinelabels-iter*.h5 files found in {self.folder_path}"
+            )
     
     def load_data(self):
         """Load the h5 files and prepare data for Argus"""
-        # Load CollectedData
-        self.collected_data = pd.read_hdf(self.collected_data_path)
-        
-        # Get metadata from the structure
-        self.scorer = self.collected_data.columns.get_level_values('scorer')[0]
-        
-        # Find bodyparts level name (could be 'bodypart' or 'bodyparts')
-        bodypart_level = None
-        for level_name in self.collected_data.columns.names:
-            if 'bodypart' in level_name.lower():
-                bodypart_level = level_name
-                break
-        
-        if not bodypart_level:
-            raise ValueError("No bodypart level found in DLC data")
-        
-        self.bodyparts = self.collected_data.columns.get_level_values(bodypart_level).unique().tolist()
-        
-        # Check if multi-animal
-        if 'individuals' in self.collected_data.columns.names:
-            self.is_multi_animal = True
-            # Find the actual individual level name
-            individual_level = None
-            for level_name in self.collected_data.columns.names:
-                if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
-                    individual_level = level_name
-                    break
-            if individual_level:
-                self.individuals = self.collected_data.columns.get_level_values(individual_level).unique().tolist()
-        
-        # Extract frame numbers from index
-        # Index format may be a MultiIndex tuple ('labeled-data', 'video_name', 'img123.png')
-        # OR a plain path string 'labeled-data\\video_name\\img123.png'
         import re
-        self.label_frames = []
-        self.frame_to_original_index = {}
-        for idx in self.collected_data.index:
-            # Extract frame number from image filename (e.g., 'img123.png' -> 123)
-            if isinstance(idx, tuple):
-                img_name = idx[2]
-            else:
-                # Flat path string – grab only the basename to avoid matching
-                # digits in folder/video names (e.g. 'cam1', '23-Feb-21')
-                img_name = str(idx).replace('\\', '/').split('/')[-1]
-            try:
-                match = re.search(r'(\d+)', img_name)
-                if match:
-                    frame_num = int(match.group(1))
-                    self.label_frames.append(frame_num)
-                    self.frame_to_original_index[frame_num] = idx
-            except:
-                pass
-        
-        # Sort frame numbers
-        self.label_frames = sorted(set(self.label_frames))
-        
+
+        # Load CollectedData if available
+        if self.collected_data_path is not None:
+            self.collected_data = pd.read_hdf(self.collected_data_path)
+
+            # Get metadata from the structure
+            self.scorer = self.collected_data.columns.get_level_values('scorer')[0]
+
+            # Find bodyparts level name (could be 'bodypart' or 'bodyparts')
+            bodypart_level = None
+            for level_name in self.collected_data.columns.names:
+                if 'bodypart' in level_name.lower():
+                    bodypart_level = level_name
+                    break
+
+            if not bodypart_level:
+                raise ValueError("No bodypart level found in DLC data")
+
+            self.bodyparts = self.collected_data.columns.get_level_values(bodypart_level).unique().tolist()
+
+            # Check if multi-animal
+            if 'individuals' in self.collected_data.columns.names:
+                self.is_multi_animal = True
+                # Find the actual individual level name
+                individual_level = None
+                for level_name in self.collected_data.columns.names:
+                    if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                        individual_level = level_name
+                        break
+                if individual_level:
+                    self.individuals = self.collected_data.columns.get_level_values(individual_level).unique().tolist()
+
+            # Extract frame numbers from index
+            # Index format may be a MultiIndex tuple ('labeled-data', 'video_name', 'img123.png')
+            # OR a plain path string 'labeled-data\\video_name\\img123.png'
+            self.label_frames = []
+            self.frame_to_original_index = {}
+            for idx in self.collected_data.index:
+                # Extract frame number from image filename (e.g., 'img123.png' -> 123)
+                if isinstance(idx, tuple):
+                    img_name = idx[2]
+                else:
+                    # Flat path string – grab only the basename to avoid matching
+                    # digits in folder/video names (e.g. 'cam1', '23-Feb-21')
+                    img_name = str(idx).replace('\\', '/').split('/')[-1]
+                try:
+                    match = re.search(r'(\d+)', img_name)
+                    if match:
+                        frame_num = int(match.group(1))
+                        self.label_frames.append(frame_num)
+                        self.frame_to_original_index[frame_num] = idx
+                except:
+                    pass
+
+            # Sort frame numbers
+            self.label_frames = sorted(set(self.label_frames))
+
         # Load machine labels if available
         if self.machine_labels_paths:
             # Load the highest iteration
             latest_ml_path = self.machine_labels_paths[-1]
             self.machine_labels = pd.read_hdf(latest_ml_path)
-            
-            # Get frames from machine labels
-            ml_frames = []
-            for idx in self.machine_labels.index:
-                if isinstance(idx, tuple):
-                    img_name = idx[-1]
-                else:
-                    img_name = str(idx).replace('\\', '/').split('/')[-1]
-                try:
-                    import re
-                    match = re.search(r'(\d+)', img_name)
-                    if match:
-                        frame_num = int(match.group(1))
-                        ml_frames.append(frame_num)
-                except:
-                    pass
-            
-            ml_frames = set(ml_frames)
-            collected_frames = set(self.label_frames)
-            
-            # Add machine label frames that aren't already in collected data
-            new_frames = ml_frames - collected_frames
-            if new_frames:
-                print(f"Adding {len(new_frames)} frames from machine labels")
-                self.label_frames.extend(sorted(new_frames))
+
+            if self.collected_data is None:
+                # No CollectedData – use machine labels as the primary data source
+                print(f"No CollectedData found. Loading from machine labels: {latest_ml_path.name}")
+
+                # Get metadata from machine labels; use a fixed scorer name for the new CollectedData file
+                self.scorer = "DLC"
+
+                bodypart_level = None
+                for level_name in self.machine_labels.columns.names:
+                    if 'bodypart' in level_name.lower():
+                        bodypart_level = level_name
+                        break
+                if not bodypart_level:
+                    raise ValueError("No bodypart level found in machine labels")
+                self.bodyparts = self.machine_labels.columns.get_level_values(bodypart_level).unique().tolist()
+
+                if 'individuals' in self.machine_labels.columns.names:
+                    self.is_multi_animal = True
+                    individual_level = None
+                    for level_name in self.machine_labels.columns.names:
+                        if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                            individual_level = level_name
+                            break
+                    if individual_level:
+                        self.individuals = self.machine_labels.columns.get_level_values(individual_level).unique().tolist()
+
+                # Extract frame numbers from machine labels index
+                self.label_frames = []
+                self.frame_to_original_index = {}
+                for idx in self.machine_labels.index:
+                    if isinstance(idx, tuple):
+                        img_name = idx[-1]
+                    else:
+                        img_name = str(idx).replace('\\', '/').split('/')[-1]
+                    try:
+                        match = re.search(r'(\d+)', img_name)
+                        if match:
+                            frame_num = int(match.group(1))
+                            self.label_frames.append(frame_num)
+                            self.frame_to_original_index[frame_num] = idx
+                    except:
+                        pass
                 self.label_frames = sorted(set(self.label_frames))
+
+            else:
+                # Both CollectedData and machine labels exist – add ML frames not in collected data
+                ml_frames = []
+                for idx in self.machine_labels.index:
+                    if isinstance(idx, tuple):
+                        img_name = idx[-1]
+                    else:
+                        img_name = str(idx).replace('\\', '/').split('/')[-1]
+                    try:
+                        match = re.search(r'(\d+)', img_name)
+                        if match:
+                            frame_num = int(match.group(1))
+                            ml_frames.append(frame_num)
+                    except:
+                        pass
+
+                ml_frames = set(ml_frames)
+                collected_frames = set(self.label_frames)
+
+                # Add machine label frames that aren't already in collected data
+                new_frames = ml_frames - collected_frames
+                if new_frames:
+                    print(f"Adding {len(new_frames)} frames from machine labels")
+                    self.label_frames.extend(sorted(new_frames))
+                    self.label_frames = sorted(set(self.label_frames))
     
     def find_video(self, prompt_user=False):
         """
@@ -312,15 +365,16 @@ class DLCLabelFolder:
         # Add machine labels for frames not in collected data
         if self.machine_labels is not None:
             collected_frames = set()
-            for idx in self.collected_data.index:
-                if isinstance(idx, tuple):
-                    img_name = idx[-1]
-                else:
-                    img_name = str(idx).replace('\\', '/').split('/')[-1]
-                import re
-                match = re.search(r'(\d+)', img_name)
-                if match:
-                    collected_frames.add(int(match.group(1)))
+            if self.collected_data is not None:
+                for idx in self.collected_data.index:
+                    if isinstance(idx, tuple):
+                        img_name = idx[-1]
+                    else:
+                        img_name = str(idx).replace('\\', '/').split('/')[-1]
+                    import re
+                    match = re.search(r'(\d+)', img_name)
+                    if match:
+                        collected_frames.add(int(match.group(1)))
             
             ml_scorer = self.machine_labels.columns.get_level_values('scorer')[0]
             
@@ -378,19 +432,22 @@ class DLCLabelFolder:
             video_height: Height of video (to flip y-coordinates back)
         """
         tracks = self.get_tracks_for_argus()
-        
+
+        # Use collected_data columns if available, otherwise fall back to machine_labels
+        _col_names_src = (self.collected_data if self.collected_data is not None else self.machine_labels).columns.names
+
         # Create multi-index columns
         if self.is_multi_animal:
             individual_level = None
-            for level_name in self.collected_data.columns.names:
+            for level_name in _col_names_src:
                 if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
                     individual_level = level_name
                     break
             if not individual_level:
                 individual_level = 'individuals'
-            
+
             bodypart_level = None
-            for level_name in self.collected_data.columns.names:
+            for level_name in _col_names_src:
                 if 'bodypart' in level_name.lower():
                     bodypart_level = level_name
                     break
@@ -409,13 +466,13 @@ class DLCLabelFolder:
             )
         else:
             bodypart_level = None
-            for level_name in self.collected_data.columns.names:
+            for level_name in _col_names_src:
                 if 'bodypart' in level_name.lower():
                     bodypart_level = level_name
                     break
             if not bodypart_level:
                 bodypart_level = 'bodyparts'
-            
+
             columns = []
             for track in tracks:
                 columns.append((self.scorer, track, 'x'))
@@ -431,12 +488,16 @@ class DLCLabelFolder:
         data_rows = []
         
         # Determine the index format used in the original file (MultiIndex tuple vs flat path string)
-        original_is_tuple = (self.collected_data is not None and
-                             len(self.collected_data.index) > 0 and
-                             isinstance(self.collected_data.index[0], tuple))
+        # Check collected_data first, then fall back to machine_labels
+        _ref_index = None
+        if self.collected_data is not None and len(self.collected_data.index) > 0:
+            _ref_index = self.collected_data.index
+        elif self.machine_labels is not None and len(self.machine_labels.index) > 0:
+            _ref_index = self.machine_labels.index
+        original_is_tuple = (_ref_index is not None and isinstance(_ref_index[0], tuple))
         # Detect path separator used in original flat-string index
-        if not original_is_tuple and self.collected_data is not None and len(self.collected_data.index) > 0:
-            first_idx_str = str(self.collected_data.index[0])
+        if not original_is_tuple and _ref_index is not None:
+            first_idx_str = str(_ref_index[0])
             original_sep = '\\' if '\\' in first_idx_str else '/'
         else:
             original_sep = '/'
@@ -449,9 +510,9 @@ class DLCLabelFolder:
         # Infer fallback padding width from the existing index (used only when
         # no PNG is found on disk for a given frame number).
         _fallback_pad = 4
-        if self.collected_data is not None and len(self.collected_data.index) > 0:
+        if _ref_index is not None and len(_ref_index) > 0:
             import re as _re
-            first_idx = self.collected_data.index[0]
+            first_idx = _ref_index[0]
             sample_img = first_idx[-1] if isinstance(first_idx, tuple) else str(first_idx).replace('\\', '/').split('/')[-1]
             _m = _re.search(r'(\d+)', sample_img)
             if _m:
@@ -515,8 +576,13 @@ class DLCLabelFolder:
             row_index = pd.Index(index_data)
         df = pd.DataFrame(data_rows, index=row_index, columns=multi_index)
         
+        # Determine save path – use CollectedData_DLC when no original CollectedData existed
+        if self.collected_data_path is not None:
+            h5_path = self.collected_data_path
+        else:
+            h5_path = self.folder_path / "CollectedData_DLC.h5"
+
         # Save to h5
-        h5_path = self.collected_data_path
         df.to_hdf(h5_path, key='df_with_missing', mode='w')
         
         # Save to csv
