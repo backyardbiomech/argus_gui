@@ -11,7 +11,7 @@ Usage:
 
 Directory structure expected:
 
-    ├── videos-raw/          # Contains H5 files named cam1_*, cam2_*, etc.
+    ├── videos-raw/          # Contains videos and DLC pose estimation H5 files named cam1_*, cam2_*, etc.
     ├── calibration/
     │   ├── *clicker-profile.txt     # Camera intrinsics
     │   └── *dlt-coefficients.csv    # DLT coefficients
