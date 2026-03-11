@@ -4113,32 +4113,38 @@ class ClickerWindow(pyglet.window.Window):
                         self.changed = True
                         break
         elif symbol == key.UP:
-            # if not self.base:
-            self.frameFinder.offset = self.frameFinder.offset + 1
-            # Update the global offset for this camera so it applies to all frames
-            self.offsets[self.original_index] = self.frameFinder.offset
-            # Update all offsets_output values to the new offset for consistency
-            self.offsets_output[:] = self.frameFinder.offset
-            self.changed = True
-            current_frame = self.current_point_index
-            self.change_marker()
-            print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
-            if sync:
-                self.update_all_windows()
+            if dlc_label_mode:
+                print("Offset adjustment disabled in DLC labeling mode")
+            else:
+                # if not self.base:
+                self.frameFinder.offset = self.frameFinder.offset + 1
+                # Update the global offset for this camera so it applies to all frames
+                self.offsets[self.original_index] = self.frameFinder.offset
+                # Update all offsets_output values to the new offset for consistency
+                self.offsets_output[:] = self.frameFinder.offset
+                self.changed = True
+                current_frame = self.current_point_index
+                self.change_marker()
+                print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
+                if sync:
+                    self.update_all_windows()
 
         elif symbol == key.DOWN:
-            # if not self.base:
-            self.frameFinder.offset = self.frameFinder.offset - 1
-            # Update the global offset for this camera so it applies to all frames
-            self.offsets[self.original_index] = self.frameFinder.offset
-            # Update all offsets_output values to the new offset for consistency
-            self.offsets_output[:] = self.frameFinder.offset
-            self.changed = True
-            current_frame = self.current_point_index
-            self.change_marker()
-            print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
-            if sync:
-                self.update_all_windows()
+            if dlc_label_mode:
+                print("Offset adjustment disabled in DLC labeling mode")
+            else:
+                # if not self.base:
+                self.frameFinder.offset = self.frameFinder.offset - 1
+                # Update the global offset for this camera so it applies to all frames
+                self.offsets[self.original_index] = self.frameFinder.offset
+                # Update all offsets_output values to the new offset for consistency
+                self.offsets_output[:] = self.frameFinder.offset
+                self.changed = True
+                current_frame = self.current_point_index
+                self.change_marker()
+                print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
+                if sync:
+                    self.update_all_windows()
 
         elif symbol == key.I:
             if vx - 1 >= 5:
