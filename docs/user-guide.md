@@ -19,7 +19,7 @@ The Argus GUI displays tabs for each module, allowing you to switch between diff
 
 ## Clicker
 
-Several imporant steps of the 3D reconstruction process are performed by marking and tracking individual points in multiple videos. Clicker is where you can view and navigate through videos while placing markers. 
+Several important steps of the 3D reconstruction process are performed by marking and tracking individual points in multiple videos. Clicker is where you can view and navigate through videos while placing markers. 
 
 ### Main GUI Elements
 
@@ -95,14 +95,15 @@ With any video window active, you can open the options dialog by typing `o` . Th
 8. Change the marker size and track line thickness display. This is display only, and does not affect the saved data.
 9. `Display`: Select `RGB color` or `grayscale` for the video display. Grayscale may be faster for large videos.
 10. ` Save 95% CI...` checkbox. If checked, a bootstrapping algorithm based on the 3d reconstruction error will be used to compute a 95% confidence interval for the 3D position of each marker in each frame. This will slow down the saving process, but will provide a more accurate estimate of the uncertainty in the 3D positions.
-11. Save format: Select `Dense .csv` or `Sparse .tsv` for saving the tracked points. Dense format saves all frames with and without markers, while sparse format only saves frames where markers are present. Dense format is more generally useful for analysis, while sparse format is more compact for very long videos espeically with many frames without markers.
-12. `Save location/tag`: Click to select the directory where the project data will be saved. The dialog will require you to enter a file "tag" (on windows you will also need to add a file extension, which will be removed. This will be used for saving the tracked points and other project data. Depending on options above, this will save muliple files all starting with the same tag, appended with additional information and the file extension. For example, if you enter "trial01" as the tag, and have entered a camera profile and dlt coefficients the following files will be saved:
+11. Save format: Select `Dense .csv` or `Sparse .tsv` for saving the tracked points. Dense format saves all frames with and without markers, while sparse format only saves frames where markers are present. Dense format is more generally useful for analysis, while sparse format is more compact for very long videos especially with many frames without markers.
+12. `Save location/tag`: Click to select the directory where the project data will be saved. The dialog will require you to enter a file "tag" (on windows you will also need to add a file extension, which will be removed). This will be used for saving the tracked points and other project data. Depending on options above, this will save multiple files all starting with the same tag, appended with additional information and the file extension. For example, if you enter "trial01" as the tag, and have entered a camera profile and dlt coefficients the following files will be saved:
    - `trial01-xypts.csv` (or .tsv)
    - `trial01-xyzpts.csv` (or .tsv)
    - `trial01-offsets.csv` 
    - `trial01-res.csv` (or .tsv) - the 3D reconstruction errors for each marker for each frame
    - `trial01-config.yaml` - the project configuration file containing all settings and metadata
    - other files will be saved in the 95% CI option is selected
+13. `Save labeled video`: Click to save a video with overlaid markers. This is for visualization purposes and is not required for saving the tracked points. This will save a video file with a name that includes the file name, camera number, and  `_labeled.mp4`. Depending on the length of the video and number of markers, this may take a long time to save. By default, it will use the marker sizes currently selected in **Clicker**. More options are available when calling this from the command line. See `utils/label_video_from_xypts.py` for more details.
 
 ## Sync
 
@@ -117,14 +118,14 @@ Before analyzing videos in **Clicker**, you need to determine the synchronizatio
 
 ![Sync Waves](images/sync_waves_img.png)
 
-5. **Specify Time Range**: Long videos, especially with low sync-signal-to-noise-ratios may not syncrhonize accurately if the full video is used. Use the waveform display to determine the approximate start and end time (in decimal minutes) of your synchronization sequence, and enter those values in `Start Time` and `End Time` fields.
+5. **Specify Time Range**: Long videos, especially with low sync-signal-to-noise-ratios may not synchronize accurately if the full video is used. Use the waveform display to determine the approximate start and end time (in decimal minutes) of your synchronization sequence, and enter those values in `Start Time` and `End Time` fields.
 6. **Output filename**: Specify the output filename for the synchronization results. By default this will be named based on the first video loaded in the list, with `_offsets.csv` appended, saved to the same directory as the first video. You can change this to any valid filename, but it must end with `.csv`. This file will contain the time and frame offsets for each camera, plus an confidence score for the synchronization. The confidence score is based on the correlation between the audio waveforms of the cameras.
 7. **Write Log**: If checked, a log file will be created with the output that is printed to the right side of the window. 
 8. **Go**: Click this button to start the synchronization process. The software will analyze the audio tracks of the loaded videos and attempt to find the best synchronization offsets based on the specified time range. 
 
 ## Wand
 
-Camera extrinsics (location and orientation relative to a common coordinate system) are determined by waving a "wand" with two markers in front of the cameras to provide a known distance calibration. **Wand** uses the wand (or "paired") points, and other unpaired points (these can be static objects in the background, or moving subjects), tracked in **Clicker**, along with camera intrinsics, and processed through sparse bundle adjustment to optimize camera extrinsics. It can also further optimize camera intrinsics. The output is a DLT coeffients file than can be loaded into **Clicker** for 3D reconstruction of tracks. 
+Camera extrinsics (location and orientation relative to a common coordinate system) are determined by waving a "wand" with two markers in front of the cameras to provide a known distance calibration. **Wand** uses the wand (or "paired") points, and other unpaired points (these can be static objects in the background, or moving subjects), tracked in **Clicker**, along with camera intrinsics, and processed through sparse bundle adjustment to optimize camera extrinsics. It can also further optimize camera intrinsics. The output is a DLT coefficients file than can be loaded into **Clicker** for 3D reconstruction of tracks. 
 
 ![Wand Tab](images/wand_img.png)
 
@@ -133,10 +134,10 @@ Camera extrinsics (location and orientation relative to a common coordinate syst
 3. **Select reference points file**: This should be a `-xypts.csv` file saved from **Clicker** containing a single track that marks 1-4 points in all cameras. This will be used to determine the origin and orientation of the coordinate system for the 3D reconstruction: 1 point will set the origin, 2 points will set the z-axis (plumb line), 3 points will set a horizontal plane with the z-axis calculated, and 4 points will set the origin, x, y, and z axes with the right-hand rule. You can also track a free-falling object in the filming volume, such as a ball, and select "Gravity" as the point type to calculate the z-axis. 
 4. **Select camera profile**: This should be a camera profile file that contains the camera intrinsics for your specific camera. You can use one of the included profiles or build your own using **Patterns** and **Calibrate**.
 5. **Wand Length**: Enter the length of the wand. The units used here will set the units for the 3D reconstruction.
-6. **Referecne Point Type**: Select the type of reference points you are using. This will determine how the coordinate system is set up. Options for static objects include `Axis` (1, 2, or 4 poitns), or `Plane` (3 points). If you are using a free-falling object, select `Gravity`.
+6. **Reference Point Type**: Select the type of reference points you are using. This will determine how the coordinate system is set up. Options for static objects include `Axis` (1, 2, or 4 points), or `Plane` (3 points). If you are using a free-falling object, select `Gravity`.
 7. **Recording frequency**: This is the camera recording frequency for the free-falling object for a `Gravity` reference point type.
-8. **Intrinsics** and **Distortion**: Specifiy which camera intrinsics and distortion parameters you would like to optimizein the sparse bundle adjustment based on the paired and unpaired points. You can also use the intrinsics from the camera profile (`Optimize none`).
-10. **Report on outliers**: If checked, the software will report on outliers in the paired and unpaired points after the sparse bundle adjustment and give the option to remove the outliers and re-run the optimization. This is automatic if you also selsect **Display results**. 
+8. **Intrinsics** and **Distortion**: Specify which camera intrinsics and distortion parameters you would like to optimize the sparse bundle adjustment based on the paired and unpaired points. You can also use the intrinsics from the camera profile (`Optimize none`).
+10. **Report on outliers**: If checked, the software will report on outliers in the paired and unpaired points after the sparse bundle adjustment and give the option to remove the outliers and re-run the optimization. This is automatic if you also select **Display results**. 
 11. **Choose reference camera**: Optimize the choice of reference camera such that there are the most 3D triangulatable points, i.e. camera with the most shared information.
 12. **Output camera profiles**: Good to use if you optimized intrinsics and distortion as those new values will be saved in a new camera profile to be used in **Clicker**. 
 13: **Display results**: If checked, the software will display the results of the sparse bundle adjustment in a new window. This will show the 3D positions of the paired and unpaired points, the reference points, and allow you to visualize the camera extrinsics. This will also include an outlier detection and removal step.
@@ -158,12 +159,12 @@ Colors are as follows:
 - **Reference points**: red dots
 - **Cameras**: green dots
 
-- The `DLT errors` shows the rmse reconstruction error for each camera, which is the average distance between the marked 2D position in the video and the 3D position projected back to the 2D camera using the DLT coefficients.  Very good calibrations will have DLT errors of less than 1 pixel.
+- The `DLT errors` shows the RMSE reconstruction error for each camera, which is the average distance between the marked 2D position in the video and the 3D position projected back to the 2D camera using the DLT coefficients.  Very good calibrations will have DLT errors of less than 1 pixel.
 - The `Wand Score` is calculated as $100 * \frac{std_{wand}}{mean_{wand}}$, where `std_wand` is the standard deviation of the calculated wand length across all cameras, and `mean_wand` is the mean calculated wand length across all cameras. Good calibrations generally have a wand score of approximately 1.0 or less. 
 
 ### Output Files
 Depending on the options selected, the following files will be saved to the output directory with the specified prefix:
-- `*_dlt-coefficients.csv` - DLT coefficients file for use in **Clicker** (camera extriniscs).
+- `*_dlt-coefficients.csv` - DLT coefficients file for use in **Clicker** (camera extrinsics).
 - `*_-sba-profile.txt` - Camera profile file with optimized intrinsics and extrinsics. This is for compatibility with DLTdv and easyWand, and should not be used in **Clicker**. Each row represents a camera with the following columns:
      - fx - focal length for x in pixels
      - cx, cy - principal point in pixels, typically in middle of image
@@ -193,7 +194,7 @@ Depending on the options selected, the following files will be saved to the outp
 ![Patterns Tab](images/patterns_img.png)
 
 1. **Select video of a pattern**. This should be a video of a calibration pattern, such as a checkerboard or circle grid for a single camera. The video should be a short clip of the pattern being moved around in front of the camera, with the pattern visible in multiple frames. The pattern should be well-lit and in focus, and fill 1/3-2/3 of the frame, at multiple distances and angled ± 15° from the camera. 
-2. **Display pattern recognition in progress**: If checked, the software will display the pattern recognition process in a new window. If partial patterns are detected, the detections will be displayed in red. When the full pattern is detected, the detections will be displayed with rainbow colors. If the full pattern is viisible but not detected with rainbow colors, that indicates a problem with the other settings, such as the pattern size or the number of corners, or a problem with the video itself, such as poor lighting or focus.
+2. **Display pattern recognition in progress**: If checked, the software will display the pattern recognition process in a new window. If partial patterns are detected, the detections will be displayed in red. When the full pattern is detected, the detections will be displayed with rainbow colors. If the full pattern is visible but not detected with rainbow colors, that indicates a problem with the other settings, such as the pattern size or the number of corners, or a problem with the video itself, such as poor lighting or focus.
 3. **Pattern type**: Select the type of pattern you are using: `Dots` or `Chess board`. 
 4. **Pattern**: Size of the pattern described in "shapes per row" and "shapes per columns" (not number of columns or rows). For a chess board, this is the number of inner intersections in each direction (number of squares - 1). For a dot pattern, this is the number of dots in each direction. The `spacing between shapes (m)` is the distance between the centers of adjacent dots, or the length of a chessboard square, in meters. This is used to determine the size of the pattern in real-world units.
 5. **Start time** and **End time**: Specify the time range in the video to analyze for the pattern. This is useful if the pattern is only visible in a specific part of the video, or if the video is long and you want to speed up processing.
@@ -218,7 +219,7 @@ Depending on the options selected, the following files will be saved to the outp
 ![Dwarp Tab](images/dwarp_img.png)
 
 > [!NOTE]
-> The **Dwarp** module is only necessary for creating undistorted videos for presentation or analysis in other software. The othe Argus modules, like **Clicker**, will apply undistortion algorithms to the data when camera profiles have been loaded, so you do not need to use this module for 3D reconstruction or tracking. You can track points on the distorted video and the 3D positions will be undistorted automatically when you save the data. Also, recent GoPro models include a "linear" shooting mode that undistorts the video in-camera, so you may not need to use this module at all if you are using a GoPro camera. We highly recommend using the linear shooting modes if available. 
+> The **Dwarp** module is only necessary for creating undistorted videos for presentation or analysis in other software. The other Argus modules, like **Clicker**, will apply undistortion algorithms to the data when camera profiles have been loaded, so you do not need to use this module for 3D reconstruction or tracking. You can track points on the distorted video and the 3D positions will be undistorted automatically when you save the data. Also, recent GoPro models include a "linear" shooting mode that undistorts the video in-camera, so you may not need to use this module at all if you are using a GoPro camera. We highly recommend using the linear shooting modes if available. 
 
 1. **Select movie file**: This should be a video file that you want to undistort using the camera profile.
 2. **Camera profile**: You can select an included camera model and shooting mode which will set the profile elements automatically, or you can manually enter the profile values. 
@@ -226,7 +227,7 @@ Depending on the options selected, the following files will be saved to the outp
 4. **Output movie options**: 
   + `Compression level`: must be an integer between 0 and 63, 0 being no compression (lossless) and 63 being maximal compression. Consult FFMPEG's documentation for more information on the `crf` parameter. 
   + `Full frame interval`: The number of frames between full saved frames. Smaller numbers may result in smoother video but will take longer to process and require more disk space. 
-  + `Crop video to undistorted area`: If checked, the video will be cropped to the undistorted area, which may result in a smaller video file size but loss of areas outside the crop. If unchecked, the undistored video will be saved over a light-blue background. 
+  + `Crop video to undistorted area`: If checked, the video will be cropped to the undistorted area, which may result in a smaller video file size but loss of areas outside the crop. If unchecked, the undistorted video will be saved over a light-blue background. 
   + `Copy video and audio codec before undistorting`: If checked, the video and audio codecs will be copied from the original video file before undistorting. This will result in a faster processing time but may not work with all video formats on all computers.
 5. **Output filename and location**: The default is the same directory as the movie file, and the same name, but with `_dewarped.MP4` appended. You can change this to any valid filename, but it must end with `.MP4`.
 6. **Write log**: If checked, a log file will be created with the output that is printed to the right side of the window.
@@ -238,7 +239,7 @@ This guide will walk you through the basic steps to set up a multi-camera projec
 
 ### Workflow Overview
 
-1. **Determine camera instrinics**. This should be done before recording research videos, and is best performed in a controlled environment. These parameters will likely be fixed for your camera setup, so you can save them and reuse them for future projects with the same cameras on the same settings. Argus comes with camera instrinsics for some common cameras, but you can also create your own using the **Patterns** and **Calibrate** modules.
+1. **Determine camera intrinsics**. This should be done before recording research videos, and is best performed in a controlled environment. These parameters will likely be fixed for your camera setup, so you can save them and reuse them for future projects with the same cameras on the same settings. Argus comes with camera instrinsics for some common cameras, but you can also create your own using the **Patterns** and **Calibrate** modules.
 2. **Camera setup for data collection**. Set up your cameras in a fixed position, ensuring they are synchronized and have overlapping fields of view. Use tripods or mounts to keep cameras stable.
 3. **Record wand and data videos**
 4. **Determine DLT coefficients**. This is done using the **Wand** module, which uses the wand points and other unpaired points tracked in **Clicker** to optimize camera extrinsics.
@@ -250,7 +251,7 @@ Camera intrinsics are the internal parameters of a camera that affect how it cap
 > [!NOTE]
 > We've included intrinsics for some common cameras in the [resources/calibrations directory on GitHub](https://github.com/backyardbiomech/argus_gui/tree/main/argus_gui/resources/calibrations). If you are using one of these cameras and shooting modes, you can skip the calibration steps below and [create a camera profile](#create-a-camera-profile) based on the included numbers.
 
-Argus divides the intrinsic-calibration process into mulitple steps, all of which should be completed in controlled environments before recording research videos:
+Argus divides the intrinsic-calibration process into multiple steps, all of which should be completed in controlled environments before recording research videos:
 + Use the **Patterns** module to detect calibration patterns in video files.
 + Use the **Calibrate** module to perform the calibration based on the detected patterns.
 + We recommend using additional refinement steps.
@@ -274,7 +275,7 @@ Argus divides the intrinsic-calibration process into mulitple steps, all of whic
 3. **Calibrate the camera**: Open the [**Calibrate**](#calibrate) module and load the patterns file created in the previous step.
    + Specify the number of replications and sample size per replication.
    + Choose your optimization options. GoPros in "narrow" shooting modes should use the `Pinhole model` with the first two radial coefficients optimized. We recommend other cameras use relatively narrow modes. 
-   + If your camera has a significant amount of distortion, you can use the `omnidirectional` model and optimize all distortion coefficients, but the best results may be achieved by using Scaramuzza's omnidirectional model (calibrated with [Ocam Calib](https://sites.google.com/site/scarabotix/ocamcalib-omnidirectional-camera-calibration-toolbox-for-matlab/ocamcalib-toolbox-download-page), a MATLAB toolbox). There is also a [Python implementation](https://github.com/jakarto3d/py-OCamCalib) of this model, but we have not yet tested it.
+   + If your camera has a significant amount of distortion, you can use the `omnidirectional` model and optimize all distortion coefficients, but the best results may be achieved by using Scaramuzza's omnidirectional model (calibrated with [`Ocam Calib`](https://sites.google.com/site/scarabotix/ocamcalib-omnidirectional-camera-calibration-toolbox-for-matlab/ocamcalib-toolbox-download-page), a MATLAB toolbox). There is also a [Python implementation](https://github.com/jakarto3d/py-OCamCalib) of this model, but we have not yet tested it.
    + Click "Go" to start the calibration process. The software will analyze the detected pattern points and perform the calibration, creating a `.csv` file with the results of all replications, including the RMSE for each replication. This provides a starting point for making a camera profile, noting that the single replication with the lowest RMSE may not be the best profile. However, the lowest RMSE result is also saved as a `-profile.txt` file: a single row with the following camera instrinsics:
      - camera index number (1 for the first camera, used when loading profiles into Wand and Clicker) 
      - focal length in pixels (fx)
@@ -286,7 +287,7 @@ Argus divides the intrinsic-calibration process into mulitple steps, all of whic
      - radial distortion coefficient (r6) - optional, used for some cameras
 
 ##### Create a camera profile
-You need to now make a `profile.txt` that contains the instrics for all of your cameras you will use in a multi-camera setup. This is done by creating a new text file and copying the instrinsics from the `-profile.txt` file created in the previous step.  
+You need to now make a `profile.txt` that contains the intrinsics for all of your cameras you will use in a multi-camera setup. This is done by creating a new text file and copying the instrinsics from the `-profile.txt` file created in the previous step.  
     + If all of your cameras are the same model and shooting mode, you can duplicate the single row in the file that **Calibrate** produced, changing only the first column (the camera index). 
     + If you have different cameras or shooting modes, each row of the `-profile.txt` file will need to be different. 
     + The order of the cameras in the profile must match the order in which you will load the cameras in the **Clicker** and **Wand** modules.
@@ -308,7 +309,7 @@ We have found that the best results for 3D reconstruction are achieved by using 
 
 1. **Record a wand video**: This should be done is a controlled setting with optimal lighting and camera placement.
     + Set cameras to the same settings as will be used for data recordings.
-    + Place the cameras similarly (distance to target and to each other) as you will for data recording. The best 3D reconstructions have inter-camera distances equal to approximatly half the camera-to-target distance. Cameras should not be co-linear.
+    + Place the cameras similarly (distance to target and to each other) as you will for data recording. The best 3D reconstructions have inter-camera distances equal to approximately half the camera-to-target distance. Cameras should not be co-linear.
     + Record a video of a wand with two markers fixed-distance from each other in front of the cameras. The wand should be moved slowly around in front of the cameras, with the markers visible in multiple frames. The distance between the markers should be constant, and the markers should be well-lit and in focus. The wand should be moved in a way that fills the filming volume, and oriented in all directions.
     + Ideally, other objects should be visible or added to the filming volume, such as a static objects in the background or a slowly moving subject, to provide additional unpaired points for the calibration.
     + Cameras should be synchronized using light or [sound](#sync). 
@@ -323,12 +324,12 @@ We have found that the best results for 3D reconstruction are achieved by using 
     + The most important variable to keep in mind is that any given frame, the same absolute marker should be marked with the same track name in every camera. 
     + The points need not be visible in every camera if you have a complex setup, but should be visible in at least two cameras in every frame where you mark the points.
     + For example, after loading the videos, use the options dialog to turn off auto frame advance, make sure cameras are synchronized, and then add a track. Let's call it "Track 2" (the names don't matter). Close the dialog. Jump to frame 50 (`shift-F`) in all cameras. If both markers are visible, mark the same wand end with "Track 1" in all cameras in that frame. Switch to "Track 2" (`.`) and mark the other wand end in all cameras in that frame.  Jump ahead another 50 frames (`shift-F`) and repeat the process. There is no need to ensure that the same marker that you marked "Track 1" previously is marked as "Track 1" in this frame. You only have to ensure that in this frame, **the same wand end in marked "Track 1" in every camera**. 
-    + For most setups, marking about 60 frames that cover the filming volume and angles is sufficent for a good wand calibration.
+    + For most setups, marking about 60 frames that cover the filming volume and angles is sufficient for a good wand calibration.
     + Save the tracked points (`s`) as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `wandpts`, which will save the file as `wandpts-xypts.csv`.
     + Close the video windows, but do not close the **Clicker** module. You will need it again later to track unpaired points.
 3. **Track unpaired points**: Click **Go** to reload the video windows, but do not load the wand data. 
       + This will recreate your video windows, but now with only "Track 1". Unpaired points files should only have one track, so do not add a new track.
-      + Use the options dialot to turn off auto frame advance and make sure cameras are synchronized.
+      + Use the options dialog to turn off auto frame advance and make sure cameras are synchronized.
       + Track any static objects in the background or slowly moving subjects that are visible in all cameras. 
       + You can use slowly moving wand ends as unpaired points to add calibration points to parts of the volume that are not covered by the paired points. 
       + Since this is all the same track, mark an single object in all cameras, then advance a frame (`f`) and mark the next object in all cameras, and so on.
@@ -344,13 +345,13 @@ We have found that the best results for 3D reconstruction are achieved by using 
       + If you shot in a narrow mode with minimal visual distortion, optimize focal length and  the first two radial coefficients.
       + If you shot in a wide mode, you will need to test different combinations of optimization options to find the best results.
       + Check **report on outliers** and **display results** to visualize the calibration results and remove outliers.
-      + Remove any significant outlers and record the new wand score and DLT errors.
+      + Remove any significant outliers and record the new wand score and DLT errors.
 6. **Manually iterate**. 
       + All cameras will be optimized separately, but most cameras of the same model and shooting mode **should** have the same intrinsics and distortion coefficients.
       + The SBA optimization works to minimize the wand score, but not the DLT errors, and could get stuck in a local minimum. So you may need to manually iterate as follows. 
       + Load the optimized camera profile. Save it with a different name. If all cameras are the same model and shooting mode, copy the first row to all cameras, changing only the camera index.
       + Edit the focal length by adding or subtracting some value (e.g. 10). Save the profile.
-      + Select that profile in the **Wand** module and run the calibration again, but with **no optimization** of the camera intrinsics and distortion coefficients. This will force it to use exaclty the values in the profile.
+      + Select that profile in the **Wand** module and run the calibration again, but with **no optimization** of the camera intrinsics and distortion coefficients. This will force it to use exactly the values in the profile.
       + Record the wand score and DLT errors.
       + Edit the focal length again, and save the profile.
       + Rerun the calibration (no need to select it again as **Wand** will reload the file from disk each time you click "Go").
@@ -358,13 +359,13 @@ We have found that the best results for 3D reconstruction are achieved by using 
       + Repeat until you find the focal length that gives the best balance of wand score and DLT errors. for your needs. 
       + You also repeat this process for changing the first radial distortion coefficient and holding focal length constant. 
 7. **Save the final camera profile**: Once you have found the best focal length and distortion coefficients, build the final camera profile as a text file with a descriptive name for the cameras and settings such as `3-gopro6-1080x1920_linear-profile.txt`. This will be used in the **Clicker** and **Wand** modules for 3D reconstruction.
-8. **Ground truth test**: If you recorded a ground-truth test video, you can now use the **Clicker** module to track points in that video and compare the 3D positions to the known positions. Load the optimized camera profile, and the dlt coefficients create by wand using that profile. Track the object in the video and save. You will now get an `*-xyzpts.csv` file with the 3D positions of the tracked points. Load these positions and calculate the accleration due to gravity of the object, or the lenght of your ground truth object, and compare to the known values. If the values are within an acceptable range, you can use the camera profile for your research videos. If not, you may need to repeat the wand calibration steps with different optimization options or manual iterations.
+8. **Ground truth test**: If you recorded a ground-truth test video, you can now use the **Clicker** module to track points in that video and compare the 3D positions to the known positions. Load the optimized camera profile, and the dlt coefficients create by wand using that profile. Track the object in the video and save. You will now get an `*-xyzpts.csv` file with the 3D positions of the tracked points. Load these positions and calculate the acceleration due to gravity of the object, or the length of your ground truth object, and compare to the known values. If the values are within an acceptable range, you can use the camera profile for your research videos. If not, you may need to repeat the wand calibration steps with different optimization options or manual iterations.
 
 #### Step 2: Data recordings
-1. **Select camera locations**: Choose locations for your cameras that provide overlapping fields of view of the filming volume. The best 3D reconstructions have inter-camera distances equal to approximatly half the camera-to-target distance. Cameras should not be co-linear.
+1. **Select camera locations**: Choose locations for your cameras that provide overlapping fields of view of the filming volume. The best 3D reconstructions have inter-camera distances equal to approximately half the camera-to-target distance. Cameras should not be co-linear.
 2. **Record a wand video**: Record a video of a wand with two markers fixed-distance from each other in front of the cameras. The wand should be moved slowly around in front of the cameras in the same volume as the subjects, with the markers visible in multiple frames. The wand should be moved in a way that fills the filming volume, and oriented in all directions. Ensure you have a synchronization signal in the video.
-      + We recommend re-recording wand videos at a minimum at the start **and** end of your fliming session. Reconstruction is also sensitive to very minor changes in camera posittion, so if you move the cameras at all during the filming session, you should re-record the wand video. If you touch the camera or tripod, or a small bird lands on the camera, or even a strong breeze moves the camera, you should re-record the wand video.
-3. **Record data videos** with synchronzation signals for every recording.
+      + We recommend re-recording wand videos at a minimum at the start **and** end of your filming session. Reconstruction is also sensitive to very minor changes in camera position, so if you move the cameras at all during the filming session, you should re-record the wand video. If you touch the camera or tripod, or a small bird lands on the camera, or even a strong breeze moves the camera, you should re-record the wand video.
+3. **Record data videos** with synchronization signals for every recording.
 
 #### Step 3: Organize data
 Because a lot of files are created during the reconstruction process, it is important to organize your data in a way that makes it easy to find and use later. One option for organization is below:
@@ -373,7 +374,7 @@ Because a lot of files are created during the reconstruction process, it is impo
    project/
    ├── instrinsics/
    │   ├── camera-profile.txt
-   │   ├── other instrics files from Patterns and Calibrate and optimization
+   │   ├── other intrinsics files from Patterns and Calibrate and optimization
    ├── Recording Date/
    │   ├── wand_calibration_01/
    │   │   ├── cam1.mp4
@@ -421,7 +422,7 @@ Because a lot of files are created during the reconstruction process, it is impo
    + For a 3 point object, the 3 point should form a right angle: the first point will represent the origin of the 3D reconstruction, the second point is the positive x axis, and the third point is the positive y axis. The z-axis is determined as the cross product. 
    + A 4 point object should be a full right handed x, y, z frame, digitized in order as origin, +x, +y, +z.
    + You can also use at least three points to define a horizontal plane, which will be used to determine the z-axis of the 3D reconstruction. This is helpful for filming scenes on the surface of water. The horizontal plane will define the z-axis, and the x-axis and y-axis will be determined by the orientation of the first camera.
-   + Or you can use a free-falling object, which should be tracke in every frame. This will be used to determine the z-axis as the direction of gravity. The x-axis and y-axis will be determined by the orientation of the first camera.
+   + Or you can use a free-falling object, which should be tracked in every frame. This will be used to determine the z-axis as the direction of gravity. The x-axis and y-axis will be determined by the orientation of the first camera.
    + Save the tracked points as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `reference`, which will save the file as `reference-xypts.csv`.
 
 #### Step 5: Run the wand calibration
@@ -441,6 +442,6 @@ Because a lot of files are created during the reconstruction process, it is impo
    + Add as many tracks as you need for the data points you want to track. Each track should represent a single data point, and the same point should be marked in all cameras in the same frame.
    + When tracking multiple points, we recommend starting by tracking a single point in one camera in all frames (with auto frame advance turned on). Then track that same point in all frames of the next cameras, etc.
    + If you load your DLT coefficients file and camera profile, you will see light blue epipolar lines in the video windows. These lines show predictions of where a marker should be based on the mark(s) placed in other videos. These should not be used to dictate marker placement but are best used as indication of calibration or synchronization problems. **Always mark the object in the video as accurately as you can see**. 
-   + Save the tracked points. And **save often**. Each save will include a `config.yaml` file that can be loaded in the original clicker window to make re-loading a session easer. But note that fiile contains absolute paths to a number of files, so will not work if you move the files to a different directory or computer.
+   + Save the tracked points. And **save often**. Each save will include a `config.yaml` file that can be loaded in the original clicker window to make re-loading a session easer. But note that file contains absolute paths to a number of files, so will not work if you move the files to a different directory or computer.
    + Assuming you loaded a camera profile and DLT coefficients file, the saved files will include a `-xyzpts.csv` file. These are the 3D points you can analyze as you need. 
    + For you final save, you might consider selection the "Save 95% confidence intervals" option in the save dialog. This will create several additional files, including `-xyzpts-95ci.csv` file with the 3D positions and their 95% confidence intervals. These are based on a bootstrapping analysis that uses the 3D reconstruction errors for each point for each frame. This is useful for statistical analysis of the data, but may not be necessary for all projects.

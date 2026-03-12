@@ -7,7 +7,7 @@ DeepLabCut natively supports 3D tracking with several significant limitations th
 2. **Camera Synchronization**: Argus provides robust synchronization tools using audio, while DeepLabCut requires that video files are synchronized before importing.
 3. **Filming Volume Calibration**: Argus can calibrate the filming volume using a wand, which is not supported in DeepLabCut, which requires filming of checkerboard patterns to simultaneous determine camera instrinsics and extrinsics. The wand calibration (structure-from-motion) allows for 3D tracking in difficult to access filming volumes by separating the camera intrinsics and extrinsics calibration steps.
 
-For a robust 2-camera setup in a controlled envinroment, we strongly recommend using DeepLabCut directly for the simplest workflow. However, for more complex setups or when using more than two cameras, Argus provides a more flexible and powerful solution, and can take advantage of DeepLabCut's pose estimation capabilities.
+For a robust 2-camera setup in a controlled environment, we strongly recommend using DeepLabCut directly for the simplest workflow. However, for more complex setups or when using more than two cameras, Argus provides a more flexible and powerful solution, and can take advantage of DeepLabCut's pose estimation capabilities.
 
 ## Installation
 We do not recommend trying to install Argus and DeepLabCut in the same Python environment. It might work, but both have a number of dependencies that may conflict. Instead, we recommend using a separate environment for Argus and DeepLabCut.
