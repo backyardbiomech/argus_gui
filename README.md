@@ -3,11 +3,11 @@ Argus
 
 Argus is a python package with multiple tools for 3D camera calibration and reconstruction. Argus Panoptes had thousands of eyes, but you may only have two or more cameras.  Hopefully this will help.
 
-![Argus GUI](https://img.shields.io/badge/version-3.0.0-blue)
+![Argus GUI](https://img.shields.io/badge/version-3.1.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-GPL%20v3-green)
 
-Updated: 2025-06-30, tested on Windows 11 and MacOS 15.5
+Updated: 2026-03-12, tested on Windows 11 and MacOS 26.3
 
 Read the [full documentation](docs/index.md).
 
