@@ -380,7 +380,10 @@ class OptionsPopupWindow(QtWidgets.QDialog):
 
         self.okbutton = QtWidgets.QPushButton("Ok")
         self.okbutton.clicked.connect(self.accept)
-        
+
+        self.save_labeled_button = QtWidgets.QPushButton("Save labeled video(s)")
+        self.save_labeled_button.clicked.connect(self.save_labeled_videos)
+
         # set values to globals if they are already set
         self.cam_entry.setText(camera_filename)
         self.dlt.setText(dlt_filename)
@@ -437,7 +440,15 @@ class OptionsPopupWindow(QtWidgets.QDialog):
         layout.addWidget(self.dlc_likelihood_label, 19, 0)
         layout.addWidget(self.dlc_likelihood_input, 19, 1)
         layout.addWidget(self.dlc_button, 20, 0, 1, 3)
-        layout.addWidget(self.okbutton, 21, 2)
+
+        divider4 = QtWidgets.QFrame()
+        divider4.setFrameShape(QtWidgets.QFrame.HLine)
+        divider4.setFrameShadow(QtWidgets.QFrame.Sunken)
+        exportlabel = QtWidgets.QLabel("Video Export")
+        layout.addWidget(divider4, 21, 0, 1, 3)
+        layout.addWidget(exportlabel, 22, 0, 1, 3)
+        layout.addWidget(self.save_labeled_button, 23, 0, 1, 3)
+        layout.addWidget(self.okbutton, 24, 2)
 
     def accept(self):
         """Override accept to save the likelihood threshold value and re-filter DLC data if needed"""
@@ -712,6 +723,101 @@ class OptionsPopupWindow(QtWidgets.QDialog):
                 "Error",
                 f"Failed to load DeepLabCut data: {str(e)}"
             )
+
+    def save_labeled_videos(self):
+        """Generate labeled videos by overlaying xypts marker data on the loaded videos."""
+        import importlib.util
+        import argus_gui as _ag_pkg
+
+        # Locate label_video_from_xypts.py relative to the argus_gui package root
+        try:
+            _pkg_file = os.path.abspath(_ag_pkg.__file__)
+            _repo_root = os.path.dirname(os.path.dirname(_pkg_file))
+            _label_script = os.path.join(_repo_root, 'utils', 'label_video_from_xypts.py')
+            if not os.path.exists(_label_script):
+                raise FileNotFoundError(f"Script not found:\n{_label_script}")
+            spec = importlib.util.spec_from_file_location('label_video_from_xypts', _label_script)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            label_video_fn = mod.label_video
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Error",
+                f"Could not load label_video_from_xypts.py:\n{str(e)}")
+            return
+
+        # Check that xypts have been saved
+        global global_filename
+        if not global_filename:
+            QtWidgets.QMessageBox.warning(self, "Save Points First",
+                "Points have not been saved yet.\n"
+                "Please save your points (S key or Ctrl+S) before generating labeled videos.")
+            return
+
+        csv_path = global_filename + '-xypts.csv'
+        if not os.path.exists(csv_path):
+            QtWidgets.QMessageBox.warning(self, "Error",
+                f"xypts CSV not found:\n{csv_path}\n\nPlease save your points first.")
+            return
+
+        # Get all video windows
+        video_windows = [w for w in pyglet.app.windows if isinstance(w, ClickerWindow)]
+        video_windows.sort(key=lambda w: w.actual_camera_number)
+        if not video_windows:
+            QtWidgets.QMessageBox.warning(self, "Error",
+                "No video windows are currently open.")
+            return
+
+        # Ask for output directory, defaulting to the directory of the xypts CSV
+        default_dir = os.path.dirname(os.path.abspath(global_filename))
+        output_dir = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select output directory for labeled videos", default_dir)
+        if not output_dir:
+            return
+
+        # Use the current marker radius setting
+        marker_radius = radius
+
+        # Process each video with a progress dialog
+        progress = QtWidgets.QProgressDialog(
+            "Generating labeled videos...", "Cancel", 0, len(video_windows), self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        QtWidgets.QApplication.processEvents()
+
+        errors = []
+        for i, window in enumerate(video_windows):
+            if progress.wasCanceled():
+                break
+            cam_num = window.actual_camera_number
+            video_path = window.movie
+            video_stem = os.path.splitext(os.path.basename(video_path))[0]
+            output_path = os.path.join(output_dir, f"{video_stem}_cam{cam_num}_labeled.mp4")
+            progress.setLabelText(
+                f"Processing camera {cam_num} ({i + 1}/{len(video_windows)})...")
+            QtWidgets.QApplication.processEvents()
+            try:
+                label_video_fn(
+                    video_path=video_path,
+                    csv_path=csv_path,
+                    camera_num=cam_num,
+                    output_path=output_path,
+                    marker_size=marker_radius,
+                )
+            except Exception as e:
+                errors.append(f"Camera {cam_num}: {str(e)}")
+            progress.setValue(i + 1)
+            QtWidgets.QApplication.processEvents()
+
+        progress.close()
+
+        if errors:
+            QtWidgets.QMessageBox.warning(self, "Errors",
+                "Some videos could not be labeled:\n" + "\n".join(errors))
+        else:
+            n = len(video_windows)
+            QtWidgets.QMessageBox.information(self, "Done",
+                f"Successfully labeled {n} video(s).\nSaved to: {output_dir}")
 
 class newTrackPopup(QtWidgets.QDialog):
     def __init__(self, parent=None):
