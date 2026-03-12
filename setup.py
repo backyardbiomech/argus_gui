@@ -5,7 +5,7 @@ import sys
 
 setup(
     name='argus_gui',
-    version='3.0.0',
+    version='3.1.0',
     packages=['argus_gui', 'argus_gui.resources'],
     scripts=[
         'argus_gui/resources/scripts/argus-dwarp', 

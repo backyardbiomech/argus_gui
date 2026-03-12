@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "argus_gui"
-version = "3.0.0"
+version = "3.1.0"
 description = "Tools for 3D camera calibration and reconstruction with graphical user interfaces"
 readme = "README.md"
 license = {text = "GNU GPLv3"}
