@@ -113,7 +113,6 @@ When you're ready to save:
 
 #### Workflow Tips
 
-- **Refining model predictions**: After training a DeepLabCut model and generating predictions with `analyze_videos()`, extract outlier frames with `extract_outlier_frames()`. Open the labeled-data folder in Argus to quickly review and correct the machine labels on those frames.
-- **Adding new labels**: Argus works equally well for labeling frames from scratch. Use the Shift+Arrow navigation to move between extraction frames efficiently.
-- **Multi-animal projects**: Argus fully supports multi-animal DeepLabCut projects. Each individual-bodypart combination is treated as a separate track (e.g., "mouse1_nose", "mouse2_nose").
-- **Preserving manual work**: Because Argus never overwrites existing `CollectedData` entries with machine labels, you can safely load both old manual labels and new predictions without losing your previous work.
+- **Refining model predictions**: After training a DeepLabCut model and generating predictions with `deeplabcut.analyze_videos()`, extract outlier frames with `deeplabcut.extract_outlier_frames()`. Open the labeled-data folder in Argus to quickly review and correct the machine labels on those frames.
+- **Adding new labels**: Argus works equally well for labeling frames from scratch. After `deeplabcut.extract_frames()`, load the labeled-data folder in Argus, and use the Shift+Arrow navigation to move between extracted frames.
+- **Multi-animal projects**: Argus fully supports multi-animal DeepLabCut projects. Each individual-bodypart combination is treated as a separate track (e.g., "mouse1_nose", "mouse2_nose") in Argus, and then saved back to CollectedData properly.
