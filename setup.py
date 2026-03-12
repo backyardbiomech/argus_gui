@@ -5,7 +5,7 @@ import sys
 
 setup(
     name='argus_gui',
-    version='3.0.0',
+    version='3.1.0',
     packages=['argus_gui', 'argus_gui.resources'],
     scripts=[
         'argus_gui/resources/scripts/argus-dwarp', 
@@ -41,6 +41,7 @@ setup(
         "pyqtgraph >= 0.13.7",
         "imageio >= 2.0.0",
         "imageio-ffmpeg",
+        "tables",
         ],
     # Note: dependency_links is deprecated, use modern dependency management
     # dependency_links=[

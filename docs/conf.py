@@ -2,8 +2,8 @@
 
 # -- Project information -----------------------------------------------------
 project = 'Argus GUI'
-copyright = '2025, Dylan Ray, Dennis Evangelista'
-author = 'Dylan Ray, Dennis Evangelista'
+copyright = '2025, Dylan Ray, Dennis Evangelista, Brandon Jackson, Tyson Hedrick'
+author = 'Dylan Ray, Dennis Evangelista, Brandon Jackson, Tyson Hedrick'
 release = '3.0.0'
 
 # -- General configuration ---------------------------------------------------

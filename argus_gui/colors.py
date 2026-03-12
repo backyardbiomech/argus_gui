@@ -3,6 +3,8 @@
 
 from __future__ import absolute_import
 
+__all__ = ['ArgusColors']
+
 class ArgusColors():
     def __init__(self):
         self.tableau_color_blind_10 = [(0, 107, 164), (255, 128, 14), (171, 171, 171), (89, 89, 89), (95, 158, 209),

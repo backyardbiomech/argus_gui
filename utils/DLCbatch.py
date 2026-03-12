@@ -11,13 +11,16 @@ Usage:
 
 Directory structure expected:
 
-    ├── videos-raw/          # Contains H5 files named cam1_*, cam2_*, etc.
+    ├── videos-raw/          # Contains videos and DLC pose estimation H5 files named cam1_*, cam2_*, etc.
     ├── calibration/
     │   ├── *clicker-profile.txt     # Camera intrinsics
     │   └── *dlt-coefficients.csv    # DLT coefficients
     
 Output:
     CSV files with columns: track_x, track_y, track_z, track_error, track_ncams, track_score
+
+NOTES:
+Currently in testing mode and not fully documented!
 """
 
 import os
@@ -28,6 +31,8 @@ import pandas as pd
 import numpy as np
 from collections import defaultdict
 import re
+import logging
+from datetime import datetime
 
 # Add argus_gui to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -40,19 +45,64 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95):
+    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True, 
+                 use_filtered=True, shuffle=1):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
+        self.optimize_cameras = optimize_cameras
+        self.use_filtered = use_filtered
+        self.shuffle = shuffle
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
         self.calibration_dir = os.path.join(data_dir, 'calibration')
+        
+        # Set up logging
+        self.log_file = os.path.join(data_dir, 'DLCBatch_log.txt')
+        self._setup_logging()
         
         # Validate directory structure
         self._validate_directories()
         
         # Load calibration files
         self._load_calibration()
+    
+    def _setup_logging(self):
+        """Set up logging to both file and console."""
+        # Create logger
+        self.logger = logging.getLogger('DLCBatch')
+        self.logger.setLevel(logging.INFO)
+        
+        # Remove any existing handlers
+        self.logger.handlers = []
+        
+        # Create file handler
+        fh = logging.FileHandler(self.log_file, mode='w')
+        fh.setLevel(logging.INFO)
+        
+        # Create console handler
+        ch = logging.StreamHandler(sys.stdout)
+        ch.setLevel(logging.INFO)
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', 
+                                     datefmt='%Y-%m-%d %H:%M:%S')
+        fh.setFormatter(formatter)
+        ch.setFormatter(formatter)
+        
+        # Add handlers to logger
+        self.logger.addHandler(fh)
+        self.logger.addHandler(ch)
+        
+        # Log startup info
+        self.logger.info("="*60)
+        self.logger.info("DLC Batch Processing Started")
+        self.logger.info(f"Data directory: {self.data_dir}")
+        self.logger.info(f"Likelihood threshold: {self.likelihood_threshold}")
+        self.logger.info(f"Camera optimization: {self.optimize_cameras}")
+        self.logger.info(f"Use filtered files: {self.use_filtered}")
+        self.logger.info(f"Shuffle number: {self.shuffle}")
+        self.logger.info("="*60)
     
     def _validate_directories(self):
         """Check that required directories exist."""
@@ -124,45 +174,113 @@ class DLCBatchProcessor:
     
     def _find_trials(self):
         """Find all unique trials based on H5 file naming patterns."""
-        h5_files = glob.glob(os.path.join(self.videos_dir, '*.h5'))
-        if not h5_files:
+        all_h5_files = glob.glob(os.path.join(self.videos_dir, '*.h5'))
+        if not all_h5_files:
             raise FileNotFoundError("No H5 files found in videos-raw directory")
         
-        # Group files by trial (everything after camera number)
-        trials = defaultdict(list)
+        # Filter H5 files based on filtered and shuffle criteria
+        h5_files = []
+        filtered_pattern = 'filtered' if self.use_filtered else ''
+        shuffle_pattern = f'shuffle{self.shuffle}'
+        
+        for h5_file in all_h5_files:
+            basename = os.path.basename(h5_file)
+            
+            # Check filtered requirement
+            if self.use_filtered and 'filtered' not in basename:
+                continue
+            elif not self.use_filtered and 'filtered' in basename:
+                continue
+            
+            # Check shuffle requirement
+            if shuffle_pattern not in basename:
+                continue
+            
+            h5_files.append(h5_file)
+        
+        if not h5_files:
+            filter_desc = f"{'filtered' if self.use_filtered else 'non-filtered'} with {shuffle_pattern}"
+            raise FileNotFoundError(
+                f"No H5 files found matching criteria: {filter_desc}\n"
+                f"Found {len(all_h5_files)} total H5 files in {self.videos_dir}"
+            )
+        
+        self.logger.info(f"Filtered {len(all_h5_files)} H5 files down to {len(h5_files)} files matching criteria")
+        self.logger.info(f"  Criteria: {'filtered' if self.use_filtered else 'non-filtered'}, shuffle{self.shuffle}")
+        
+        # Group files by camera+trial (before scorer)
+        # We need to handle multiple scorers for the same video
+        cam_trial_files = defaultdict(list)
+        
         for h5_file in h5_files:
             basename = os.path.basename(h5_file)
-            # Extract camera number and trial identifier
+            # Extract camera number and everything after
             match = re.match(r'cam(\d+)(.+)\.h5$', basename)
             if match:
                 cam_num = int(match.group(1))
-                trial_id = match.group(2)
-                trials[trial_id].append((cam_num, h5_file))
+                rest = match.group(2)
+                
+                # Try to separate trial from scorer
+                # Common pattern: cam1_trialname_scorerDLC_resnet50_...
+                # We'll use the part before the last underscore as trial key
+                # and group all files with same cam+trial together
+                cam_trial_files[(cam_num, rest)].append(h5_file)
             else:
-                print(f"Warning: Could not parse camera number from {basename}")
+                self.logger.warning(f"Could not parse camera number from {basename}")
+        
+        # For each cam+trial group, select the most recently created file
+        trials = defaultdict(list)
+        for (cam_num, trial_part), file_list in cam_trial_files.items():
+            if len(file_list) > 1:
+                # Multiple files for same camera+trial (different scorers)
+                # Select most recently created file
+                most_recent = max(file_list, key=lambda f: os.path.getmtime(f))
+                self.logger.info(f"Found {len(file_list)} H5 files for cam{cam_num}{trial_part}")
+                self.logger.info(f"  Using most recent: {os.path.basename(most_recent)}")
+                selected_file = most_recent
+            else:
+                selected_file = file_list[0]
+            
+            # Group by trial (remove scorer-specific parts from trial_id)
+            # Use trial_part as the key to group cameras together
+            trials[trial_part].append((cam_num, selected_file))
         
         # Sort cameras within each trial
         for trial_id in trials:
             trials[trial_id].sort(key=lambda x: x[0])  # Sort by camera number
         
-        print(f"Found {len(trials)} trials")
+        self.logger.info(f"Found {len(trials)} trials")
         return trials
     
     def _load_dlc_data(self, h5_files, trial_id):
         """Load DLC data from H5 files for a single trial."""
-        print(f"Processing trial: {trial_id}")
+        self.logger.info(f"Processing trial: {trial_id}")
         
         all_data = {}
         track_names = None
         max_frames = 0
         
         for cam_num, h5_file in h5_files:
-            print(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
+            self.logger.info(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
             
             try:
-                # Load H5 file
-                df = pd.read_hdf(h5_file, key='df_with_missing')
+                # Load H5 file - try common DLC keys
+                df = None
+                common_keys = ['df_with_missing', 'df']  # Common DLC HDF5 keys
+                
+                for key in common_keys:
+                    try:
+                        df = pd.read_hdf(h5_file, key=key)
+                        break  # Successfully loaded
+                    except KeyError:
+                        continue  # Try next key
+                
+                if df is None:
+                    # No valid data found, skip this file silently
+                    continue
+                
                 scorer_name = df.columns.get_level_values('scorer')[0]
+                self.logger.info(f"    Using scorer: {scorer_name}")
                 
                 # Get track names from first file
                 if track_names is None:
@@ -183,8 +301,19 @@ class DLCBatchProcessor:
                 
                 if is_multi_animal:
                     # Multi-animal DLC - for now, just handle single animal case
-                    print("    Multi-animal DLC detected - using first individual")
-                    individuals = df.columns.get_level_values('individual').unique().tolist()
+                    self.logger.info("    Multi-animal DLC detected - using first individual")
+                    
+                    # Find the individual/animal level name (could be 'individual', 'individuals', or 'animal')
+                    individual_level = None
+                    for level_name in df.columns.names:
+                        if level_name and isinstance(level_name, str) and level_name.lower() in ['individual', 'individuals', 'animal']:
+                            individual_level = level_name
+                            break
+                    
+                    if individual_level is None:
+                        raise ValueError("Could not find individual/animal level in multi-animal DLC data")
+                    
+                    individuals = df.columns.get_level_values(individual_level).unique().tolist()
                     individual = individuals[0]
                     cam_data = df[scorer_name][individual]
                 else:
@@ -221,7 +350,7 @@ class DLCBatchProcessor:
                 max_frames = max(max_frames, len(df))
                 
             except Exception as e:
-                print(f"    Error loading {h5_file}: {e}")
+                self.logger.error(f"    Error loading {h5_file}: {e}")
                 continue
         
         return all_data, track_names, max_frames
@@ -282,14 +411,174 @@ class DLCBatchProcessor:
                             valid_likelihoods.append(likelihood)
                             n_valid_cams += 1
                 
-                if valid_likelihoods:
+                # Only record scores and ncams if we have at least 2 cameras
+                # Single camera frames cannot be triangulated and will have NaN xyz
+                if n_valid_cams >= 2:
                     scores[frame, track_idx] = np.mean(valid_likelihoods)
                     ncams[frame, track_idx] = n_valid_cams
         
         return scores, ncams
     
-    def _perform_3d_reconstruction(self, pts_data, track_names):
-        """Perform 3D reconstruction using uv_to_xyz."""
+    def _reconstruct_with_camera_optimization(self, track_pts, track_name):
+        """Reconstruct 3D coordinates with frame-by-frame outlier camera detection.
+        
+        For frames with 3+ cameras, detects cameras with significantly higher
+        reprojection error (outliers) and excludes them from reconstruction.
+        This handles cases where one camera has bad tracking despite passing
+        the likelihood threshold.
+        
+        Args:
+            track_pts: Frames x (2*n_cameras) array of pixel coordinates for one track
+            track_name: Name of the track being processed
+            
+        Returns:
+            xyz: Frames x 3 array of optimized 3D coordinates
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        n_cameras = len(self.camera_profile)
+        n_frames = track_pts.shape[0]
+        xyz_optimized = np.full((n_frames, 3), np.nan)
+        
+        # Track optimization statistics
+        n_optimized = 0  # frames where outlier camera(s) were excluded
+        
+        # Process each frame independently
+        for frame_idx in range(n_frames):
+            frame_pts = track_pts[frame_idx, :]
+            
+            # Find which cameras have valid data for this frame
+            valid_cameras = []
+            for cam_idx in range(n_cameras):
+                pt = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+                if not np.any(np.isnan(pt)):
+                    valid_cameras.append(cam_idx)
+            
+            n_valid = len(valid_cameras)
+            
+            if n_valid < 2:
+                # Can't triangulate with fewer than 2 cameras
+                continue
+            elif n_valid == 2:
+                # Only one option, use these 2 cameras
+                cam_subset = valid_cameras
+                xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                    frame_pts, cam_subset, track_pts[frame_idx:frame_idx+1, :]
+                )
+            else:
+                # 3+ cameras: detect outlier cameras and exclude them
+                # Default to using all cameras
+                xyz_all = self._reconstruct_single_frame(frame_pts, valid_cameras, track_pts[frame_idx:frame_idx+1, :])
+                
+                if np.any(np.isnan(xyz_all)):
+                    continue
+                
+                # Calculate per-camera reprojection errors for all-camera reconstruction
+                per_cam_errors = self._get_per_camera_errors(xyz_all, frame_pts, valid_cameras)
+                
+                # Check if any camera is an outlier (significantly worse than others)
+                # Use median absolute deviation to detect outliers
+                if len(per_cam_errors) >= 3:
+                    median_error = np.median(per_cam_errors)
+                    mad = np.median(np.abs(per_cam_errors - median_error))
+                    
+                    # Identify outlier cameras (error > median + 2*MAD)
+                    # Only exclude if the outlier is significantly bad
+                    threshold = median_error + 2 * max(mad, 0.5)  # At least 0.5 pixel threshold
+                    outlier_indices = [i for i, err in enumerate(per_cam_errors) if err > threshold]
+                    
+                    if outlier_indices and len(valid_cameras) - len(outlier_indices) >= 2:
+                        # Exclude outlier camera(s) and reconstruct
+                        good_cameras = [valid_cameras[i] for i in range(len(valid_cameras)) 
+                                       if i not in outlier_indices]
+                        xyz_optimized[frame_idx] = self._reconstruct_single_frame(
+                            frame_pts, good_cameras, track_pts[frame_idx:frame_idx+1, :]
+                        )
+                        n_optimized += 1
+                    else:
+                        # No significant outliers, use all cameras
+                        xyz_optimized[frame_idx] = xyz_all
+                else:
+                    # Not enough cameras to detect outliers, use all
+                    xyz_optimized[frame_idx] = xyz_all
+        
+        # Print optimization summary
+        n_multi_cam = np.sum([len([c for c in range(n_cameras) 
+                                    if not np.any(np.isnan(track_pts[i, c*2:(c+1)*2]))]) >= 3 
+                              for i in range(n_frames)])
+        if n_multi_cam > 0:
+            self.logger.info(f"      {track_name}: {n_optimized}/{n_multi_cam} frames had outlier camera(s) excluded")
+        
+        return xyz_optimized
+    
+    def _get_per_camera_errors(self, xyz, frame_pts, cam_indices):
+        """Calculate reprojection error for each camera individually.
+        
+        Args:
+            xyz: (3,) array of 3D coordinates
+            frame_pts: (2*n_cameras,) array of pixel coordinates
+            cam_indices: List of camera indices to calculate errors for
+            
+        Returns:
+            errors: List of reprojection errors (in pixels) for each camera
+        """
+        from argus_gui.tools import undistort_pts, reconstruct_uv
+        
+        errors = []
+        for cam_idx in cam_indices:
+            pt_observed = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+            if np.any(np.isnan(pt_observed)):
+                errors.append(np.inf)  # Mark missing data as infinite error
+                continue
+            
+            # Undistort observed point
+            pt_undist = undistort_pts(np.array([pt_observed]), self.camera_profile[cam_idx])[0]
+            
+            # Reproject 3D point back to this camera
+            pt_reproj = reconstruct_uv(self.dlt_coefficients[cam_idx], xyz)
+            
+            # Calculate reprojection error in pixels
+            error = np.sqrt((pt_undist[0] - pt_reproj[0])**2 + (pt_undist[1] - pt_reproj[1])**2)
+            errors.append(error)
+        
+        return np.array(errors)
+    
+    def _reconstruct_single_frame(self, frame_pts, cam_indices, pts_subset):
+        """Reconstruct 3D point from a subset of cameras for a single frame.
+        
+        Args:
+            frame_pts: (2*n_cameras,) array of pixel coordinates for one frame
+            cam_indices: List of camera indices to use
+            pts_subset: (1, 2*n_cameras) array (for compatibility)
+            
+        Returns:
+            xyz: (3,) array of 3D coordinates
+        """
+        # Build subset of profiles and DLT coefficients
+        if isinstance(self.camera_profile, list):
+            prof_subset = [self.camera_profile[i] for i in cam_indices]
+        else:
+            prof_subset = self.camera_profile[cam_indices, :]
+        dlt_subset = self.dlt_coefficients[cam_indices, :]
+        
+        # Build pts array for just these cameras
+        pts_for_recon = np.full((1, 2 * len(cam_indices)), np.nan)
+        for new_idx, cam_idx in enumerate(cam_indices):
+            pts_for_recon[0, new_idx * 2:(new_idx + 1) * 2] = frame_pts[cam_idx * 2:(cam_idx + 1) * 2]
+        
+        # Reconstruct
+        xyz = uv_to_xyz(pts_for_recon, prof_subset, dlt_subset)
+        return xyz[0] if len(xyz) > 0 else np.full(3, np.nan)
+    
+    def _perform_3d_reconstruction(self, pts_data, track_names, optimize_camera_selection=True):
+        """Perform 3D reconstruction using uv_to_xyz.
+        
+        Args:
+            pts_data: Frame x (2*cameras*tracks) array of pixel coordinates
+            track_names: List of track names
+            optimize_camera_selection: If True, test 2-camera combinations when 3+ cameras available
+                                      and use the combination with lowest reprojection error
+        """
         n_tracks = len(track_names)
         max_frames = pts_data.shape[0]
         
@@ -305,16 +594,19 @@ class DLCBatchProcessor:
             track_pts = pts_data[:, track_idx * 2 * len(self.camera_profile):(track_idx + 1) * 2 * len(self.camera_profile)]
             
             try:
-                # Perform 3D reconstruction
-                xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
+                if optimize_camera_selection and len(self.camera_profile) >= 3:
+                    # Perform frame-by-frame camera optimization
+                    xyz = self._reconstruct_with_camera_optimization(track_pts, track_names[track_idx])
+                else:
+                    # Standard reconstruction using all cameras
+                    xyz = uv_to_xyz(track_pts, self.camera_profile, self.dlt_coefficients)
                 xyz_results.append(xyz)
                 
             except Exception as e:
-                print(f"    Error reconstructing {track_names[track_idx]}: {e}")
+                self.logger.error(f"    Error reconstructing {track_names[track_idx]}: {e}")
                 # Fill with NaNs if reconstruction fails
                 xyz_results.append(np.full((max_frames, 3), np.nan))
         
-        # Now calculate reprojection errors for ALL tracks at once (like argus-click does)
         # Calculate reprojection errors for all tracks at once (like argus-click does)
         try:
             # Concatenate all XYZ data horizontally like argus-click does
@@ -338,7 +630,7 @@ class DLCBatchProcessor:
                 error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
                 
         except Exception as e:
-            print(f"    Error calculating reprojection errors: {e}")
+            self.logger.error(f"    Error calculating reprojection errors: {e}")
             # Fill with NaNs if error calculation fails
             error_results = [np.full(max_frames, np.nan) for _ in range(n_tracks)]
         
@@ -392,11 +684,19 @@ class DLCBatchProcessor:
             track_scores = scores[:, track_idx]
             track_ncams = ncams[:, track_idx]
             
+            # CRITICAL: Enforce that XYZ and errors are NaN when ncams < 2
+            # Triangulation requires at least 2 cameras
+            insufficient_cameras_mask = track_ncams < 2
+            xyz_clean = xyz.copy()
+            xyz_clean[insufficient_cameras_mask, :] = np.nan
+            errors_clean = errors.copy()
+            errors_clean[insufficient_cameras_mask] = np.nan
+            
             # Add columns for this track
-            data_dict[f'{track_name}_x'] = xyz[:, 0]
-            data_dict[f'{track_name}_y'] = xyz[:, 1]
-            data_dict[f'{track_name}_z'] = xyz[:, 2]
-            data_dict[f'{track_name}_error'] = errors
+            data_dict[f'{track_name}_x'] = xyz_clean[:, 0]
+            data_dict[f'{track_name}_y'] = xyz_clean[:, 1]
+            data_dict[f'{track_name}_z'] = xyz_clean[:, 2]
+            data_dict[f'{track_name}_error'] = errors_clean
             data_dict[f'{track_name}_ncams'] = track_ncams
             data_dict[f'{track_name}_score'] = track_scores
         
@@ -404,12 +704,17 @@ class DLCBatchProcessor:
         df = pd.DataFrame(data_dict)
         df.to_csv(output_file, index=False, na_rep='NaN')
         
-        print(f"  Saved results to: {output_file}")
+        self.logger.info(f"  Saved results to: {output_file}")
         return output_file
     
     def process_all_trials(self):
         """Process all trials in the data directory."""
         trials = self._find_trials()
+        
+        if self.optimize_cameras:
+            self.logger.info("Camera optimization enabled: Detecting and excluding outlier cameras per frame")
+        else:
+            self.logger.info("Camera optimization disabled: Using all available cameras per frame")
         
         processed_files = []
         
@@ -419,7 +724,7 @@ class DLCBatchProcessor:
                 all_data, track_names, max_frames = self._load_dlc_data(h5_files, trial_id)
                 
                 if not all_data or not track_names:
-                    print(f"  No valid data found for trial {trial_id}")
+                    self.logger.warning(f"  No valid data found for trial {trial_id}")
                     continue
                 
                 # Format data for reconstruction
@@ -429,19 +734,26 @@ class DLCBatchProcessor:
                 scores, ncams = self._calculate_scores_and_ncams(all_data, track_names, max_frames)
                 
                 # Perform 3D reconstruction
-                xyz_results, error_results = self._perform_3d_reconstruction(pts_data, track_names)
+                xyz_results, error_results = self._perform_3d_reconstruction(
+                    pts_data, track_names, optimize_camera_selection=self.optimize_cameras
+                )
                 
                 # Save results
                 output_file = self._save_results(trial_id, track_names, xyz_results, error_results, scores, ncams)
                 processed_files.append(output_file)
                 
             except Exception as e:
-                print(f"  Error processing trial {trial_id}: {e}")
+                self.logger.error(f"  Error processing trial {trial_id}: {e}")
                 continue
         
-        print(f"\nProcessing complete! Generated {len(processed_files)} files:")
+        self.logger.info(f"\nProcessing complete! Generated {len(processed_files)} files:")
         for file_path in processed_files:
-            print(f"  {file_path}")
+            self.logger.info(f"  {file_path}")
+        
+        self.logger.info("="*60)
+        self.logger.info("DLC Batch Processing Completed")
+        self.logger.info(f"Log file saved to: {self.log_file}")
+        self.logger.info("="*60)
         
         return processed_files
 
@@ -468,20 +780,44 @@ Output CSV columns for each track (example for 'L1hip'):
                        help='Path to directory containing videos-raw and calibration folders')
     parser.add_argument('--threshold', '-t', type=float, default=0.95,
                        help='DLC likelihood threshold (default: 0.95)')
+    parser.add_argument('--optimize-cameras', action='store_true', default=True,
+                       help='Optimize camera selection per frame (default: enabled)')
+    parser.add_argument('--no-optimize-cameras', dest='optimize_cameras', action='store_false',
+                       help='Disable camera optimization, use all cameras for each frame')
+    parser.add_argument('--filtered', action='store_true', default=True,
+                       help='Use filtered H5 files (default: enabled)')
+    parser.add_argument('--no-filtered', dest='filtered', action='store_false',
+                       help='Use non-filtered H5 files')
+    parser.add_argument('--shuffle', '-s', type=int, default=1,
+                       help='Shuffle number to use (default: 1)')
     
     args = parser.parse_args()
     
     # Validate data directory
     if not os.path.exists(args.data_directory):
+        # Can't use logger yet since it's created by the processor
         print(f"Error: Data directory does not exist: {args.data_directory}")
         sys.exit(1)
     
     try:
         # Create processor and run
-        processor = DLCBatchProcessor(args.data_directory, args.threshold)
+        processor = DLCBatchProcessor(
+            args.data_directory, 
+            args.threshold, 
+            optimize_cameras=args.optimize_cameras,
+            use_filtered=args.filtered,
+            shuffle=args.shuffle
+        )
         processor.process_all_trials()
         
     except Exception as e:
+        # Try to log to file if processor was created
+        try:
+            if 'processor' in locals() and hasattr(processor, 'logger'):
+                processor.logger.error(f"Fatal error: {e}")
+                processor.logger.exception("Exception details:")
+        except:
+            pass
         print(f"Error: {e}")
         sys.exit(1)
 

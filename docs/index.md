@@ -4,7 +4,7 @@ Welcome to the official documentation for the **Argus** project - a comprehensiv
 
 Most Argus users want to track either whole or specific parts of animals in 3D space from video. This requires at least two cameras, but Argus can handle many more. Those cameras must be synchronized; Argus **Sync** provides tools for using sound for synchronization. You must know the camera intrinsics like lens distortion, which Argus **Patterns** and **Calibrate** will find. You also need the camera extrinics (camera location and orientation), which are found in **Wand**. And for tracking positions of objects in the video, you have Argus **Clicker**.  Argus also includes a bonus module **DWarp** which can be used to correct lens distortion in videos based on the camera intrinsics to produce undistorted videos for presentation or analysis in other software.
 
-![Argus GUI](https://img.shields.io/badge/version-3.0.0-blue)
+![Argus GUI](https://img.shields.io/badge/version-3.1.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-GPL%20v3-green)
 
