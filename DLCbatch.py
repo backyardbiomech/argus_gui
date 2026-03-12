@@ -18,6 +18,9 @@ Directory structure expected:
     
 Output:
     CSV files with columns: track_x, track_y, track_z, track_error, track_ncams, track_score
+
+NOTES:
+Currently in testing mode and not fully documented!
 """
 
 import os
@@ -604,7 +607,6 @@ class DLCBatchProcessor:
                 # Fill with NaNs if reconstruction fails
                 xyz_results.append(np.full((max_frames, 3), np.nan))
         
-        # Now calculate reprojection errors for ALL tracks at once (like argus-click does)
         # Calculate reprojection errors for all tracks at once (like argus-click does)
         try:
             # Concatenate all XYZ data horizontally like argus-click does
