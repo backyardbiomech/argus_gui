@@ -77,13 +77,29 @@ When you open a DLC labeled-data folder, Argus automatically:
 
 DLC labeling mode includes special keyboard shortcuts for efficient navigation:
 
-- **Shift + Right Arrow**: Jump to the next labeled frame
-- **Shift + Left Arrow**: Jump to the previous labeled frame
-- **Regular Arrow Keys**: Navigate to next frame with a label for the currently selected point (as in normal Argus mode)
-- `,` and `.` keys: step forward or backward through the bodyparts list.
-- **f** and **b** Keys: Step forward or backward one frame at a time, regardless of labels. Adding `shift` to these keys steps 50 frames at a time.
-- `+`, `-`, and `r` keys: zoom in and out at the current mouse position, or reset zoom to fit the video.
-- `d` key: deletes the currently selected body part point on the current frame.
+##### Navigation
+- **Shift + Right Arrow**: Jump to next label frame
+- **Shift + Left Arrow**: Jump to previous label frame
+- **F**: Advance one frame forward
+- **B**: Go back one frame
+- **G**: Go to specific frame (opens dialog)
+
+##### Labeling
+- **Left Click**: Add or edit point for current track
+- **Period (.)**: Switch to next track
+- **Comma (,)**: Switch to previous track
+- **O**: Open options menu
+
+##### Saving
+- **S**: Save labels to DLC format (saves to original CollectedData file)
+- **Ctrl+S**: Save As (not typically needed in DLC mode)
+
+##### View
+- **Mouse Scroll**: Zoom in/out (disabled by default, turn on in options window)
+- **Shift + Drag**: Pan the view
+- **V**: Toggle viewfinder (zoomed region)
+- **+/-**: Zoom in/out at mouse position
+
 - These and other clicker keyboard shortcuts are the same as in normal [**Clicker** function](user-guide.md#clicker).
 
 
@@ -99,6 +115,13 @@ Once in DLC labeling mode:
    - If you place a label on a frame that is not in the extracted frames list, you will get a warning and that point will not be saved. If you find a frame you want to label that is not in the extracted frames list, you need to extract it using DLC first (this ability may be added to Argus in the future).
 4. **Note**: Auto-advance is disabled by default in DLC mode to give you more control when clicking points. Changing offsets is also disabled to prevent accidentally shifting the data in dlc mode.
 
+**NOTE:** Information about the current video, frame number, and currently selected bodypart is displayed in the title bar of the video window. You can use the keyboard shortcuts to change bodyparts, or you can open the options menu (`O` key) to select a bodypart from a dropdown list.
+
+#### Track Naming in Argus
+
+- **Single animal**: Tracks named by bodypart (e.g., `nose`, `left_ear`)
+- **Multi-animal**: Tracks named `individual_bodypart` (e.g., `ind1_nose`, `ind2_left_ear`)
+
 #### Saving Your Work
 
 When you're ready to save:
@@ -110,6 +133,24 @@ When you're ready to save:
 - If no `CollectedData` file exists (you're working with machine labels only), Argus will create a new file called `CollectedData_DLC.h5`
 - Only frames that contain labels will be saved
 - **Manual edits are preserved**: Points you manually added or corrected will not be overwritten by machine labels when you save or re-open the project
+
+#### Expected DLC Project Structure
+Argus dlc-label mode expects a standard DLC project structure, and works best when your video files are organized in the `project_name/videos/` directory (copy is on when adding videos to projects), but will prompt for you to load a video from another location if needed.
+
+```
+DLCproject/
+├── config.yaml
+├── videos/
+│   └── video_name.mov  (video file)
+└── labeled-data/
+    └── video_name/
+        ├── CollectedData_*.h5  (manual labels)
+        ├── CollectedData_*.csv
+        ├── machinelabels-iter*.h5  (optional machine labels)
+        ├── img001.png
+        ├── img002.png
+        └── ...
+```
 
 #### Workflow Tips
 

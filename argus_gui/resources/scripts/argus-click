@@ -110,10 +110,18 @@ class GoToPopupWindow(QtWidgets.QDialog):
         self.setWindowTitle("Enter frame number")
         layout = QtWidgets.QVBoxLayout(self)
         self.go_to_frame = QtWidgets.QSpinBox()
-        self.go_to_frame.setValue(current_frame)
-        self.go_to_frame.setMaximum(number_of_frames)
+        if data_loaded_from_dlc:
+            # DLC uses 0-based indexing
+            self.go_to_frame.setMinimum(0)
+            self.go_to_frame.setMaximum(number_of_frames - 1)
+            self.go_to_frame.setValue(current_frame - 1)
+            self.label = QtWidgets.QLabel(f'out of {number_of_frames - 1} (0-based)')
+        else:
+            self.go_to_frame.setMinimum(1)
+            self.go_to_frame.setMaximum(number_of_frames)
+            self.go_to_frame.setValue(current_frame)
+            self.label = QtWidgets.QLabel(f'out of {number_of_frames}')
         layout.addWidget(self.go_to_frame)
-        self.label = QtWidgets.QLabel(f'out of {number_of_frames}')
         layout.addWidget(self.label)
         button = QtWidgets.QPushButton("Ok")
         button.clicked.connect(self.accept)
@@ -2852,10 +2860,11 @@ class ClickerWindow(pyglet.window.Window):
             if dlc_label_mode and dlc_label_frames and (self.current_point_index - 1) in dlc_label_frames:
                 label_indicator = " [LABEL FRAME]"
             
+            display_frame = (self.current_point_index - 1) if data_loaded_from_dlc else self.current_point_index
             self.set_caption(
                 '{0} - Frame {1}, Offset: {2} - Track: {3}{4}'.format(
                     os.path.basename(self.movie), 
-                    self.current_point_index,
+                    display_frame,
                     self.frameFinder.offset, 
                     current_track_global,
                     label_indicator))
@@ -3942,7 +3951,22 @@ class ClickerWindow(pyglet.window.Window):
                     )
                     return
 
-            if 1 <= int(w.go_to_frame.value()) <= self.end:
+            if data_loaded_from_dlc:
+                # User entered 0-based frame; convert to internal 1-based
+                entered = int(w.go_to_frame.value())
+                if 0 <= entered <= self.end - 1:
+                    self.current_point_index = entered + 1
+                    current_frame = self.current_point_index
+                    self.changed = True
+                    self.change_marker()
+                    if sync:
+                        self.update_all_windows()
+                else:
+                    QtWidgets.QMessageBox.warning(None,
+                        "Error",
+                        "Frame out of bounds"
+                    )
+            elif 1 <= int(w.go_to_frame.value()) <= self.end:
                 self.current_point_index = int(w.go_to_frame.value())
                 current_frame = self.current_point_index
                 self.changed = True
