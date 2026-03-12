@@ -854,6 +854,8 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     # load dlc file for each camera
     # number of cameras is determined by how many windows are open
     video_windows = [window for window in pyglet.app.windows if isinstance(window, ClickerWindow)]
+    # Sort by actual_camera_number so offsets[c] matches alldata[c] (h5_files[c] = camera c+1)
+    video_windows.sort(key=lambda w: w.actual_camera_number)
     no_cameras_global = len(video_windows)
     offsets = [window.offsets[window.original_index] for window in video_windows]
     if len(h5_files) != no_cameras_global:
@@ -3060,9 +3062,8 @@ class ClickerWindow(pyglet.window.Window):
 
             offsets_out = list()
 
-            for window in pyglet.app.windows:
-                if isinstance(window, ClickerWindow):
-                    offsets_out.append(window.offsets_output)
+            for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                offsets_out.append(window.offsets_output)
 
             offsets_out = np.array(offsets_out).T
 
@@ -3204,10 +3205,8 @@ class ClickerWindow(pyglet.window.Window):
 
             offsets_out = list()
 
-            # for window in [u for u in pyglet.app.windows if type(u) != GhostWindow]:
-            for window in pyglet.app.windows:
-                if isinstance(window, ClickerWindow):
-                    offsets_out.append(window.offsets_output)
+            for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                offsets_out.append(window.offsets_output)
 
             offsets_out = np.array(offsets_out).T
 
