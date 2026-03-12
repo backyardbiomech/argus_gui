@@ -1284,7 +1284,7 @@ class ClickerWindow(pyglet.window.Window):
         self.current_point_index = 1
         self.displayingFrameNumber = True
         self.displayingDLTLines = False
-        self.set_caption('{0} - Frame {1} - Track: {2}'.format(movie.split('/')[-1], 1, current_track_global))
+        self.set_caption('{0} - Frame {1} - Track: {2}'.format(os.path.basename(movie), 1, current_track_global))
         self.folder = ''
         self.current_marker = None
         self.scale_factor = factor
@@ -2854,13 +2854,13 @@ class ClickerWindow(pyglet.window.Window):
             
             self.set_caption(
                 '{0} - Frame {1}, Offset: {2} - Track: {3}{4}'.format(
-                    self.movie.split('/')[-1], 
+                    os.path.basename(self.movie), 
                     self.current_point_index,
                     self.frameFinder.offset, 
                     current_track_global,
                     label_indicator))
         else:
-            self.set_caption('{0} - Working...'.format(self.movie.split('/')[-1]))
+            self.set_caption('{0} - Working...'.format(os.path.basename(self.movie)))
 
         # viewfinder
         if self.show_view:
