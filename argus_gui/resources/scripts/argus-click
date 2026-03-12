@@ -1098,8 +1098,9 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     except Exception as e:
         raise Exception(f"Could not load DLC data. Make sure files are formatted according to DLC documentation. Error: {str(e)}")
     
-    # initialize the massive array full of nans (with more than enough rows)
-    blankarr = np.empty((max(numframes) - min(offsets), len(tracks) * 2 * no_cameras_global)) + np.nan
+    # initialize the array in camera-native space: row N = annotation for physical frame N.
+    # Offsets are NOT baked in here; they are applied at display/save time via data_index().
+    blankarr = np.empty((max(numframes), len(tracks) * 2 * no_cameras_global)) + np.nan
     xcols = range(0, len(tracks) * 2 * no_cameras_global, 2)
     ycols = range(1, len(tracks) * 2 * no_cameras_global, 2)
     # outdata is a dict with first key = indiv (0 if not multianimal)
@@ -1132,9 +1133,10 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
         
         height = current_window.frameFinder.oh
         width = current_window.frameFinder.ow
-        # make lists of rows, of matching length, that account for offsets (out = in - offset)
-        outrows = list(range(max([0, 0 - offsets[c]]), min([numframes[c], numframes[c] - offsets[c]]), 1))
-        inrows = list(range(max([0, 0 + offsets[c]]), min([numframes[c], numframes[c] + offsets[c]]), 1))
+        # Camera-native: store DLC frame N directly at row N (no offset shifting).
+        # Offsets are applied at display/interaction/save time via ClickerWindow.data_index().
+        outrows = list(range(numframes[c]))
+        inrows  = list(range(numframes[c]))
         iter = 3
         if madlc:
             for ind in individuals:
@@ -1201,6 +1203,27 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     # Set flag to indicate data was loaded from DLC and store file paths
     data_loaded_from_dlc = True
     dlc_h5_file_paths = h5_files.copy()  # Store the file paths for re-filtering
+
+def reload_dlc_data():
+    """Re-load DLC data from disk with the current likelihood threshold.
+
+    Camera-native storage means offset changes don't require a reload;
+    this function is used only when the likelihood threshold changes.
+    """
+    global load_data_global
+    if not dlc_h5_file_paths:
+        return
+    try:
+        load_dlc(dlc_h5_file_paths, like=dlc_likelihood_threshold)
+        if load_data_global is not None:
+            for window in pyglet.app.windows:
+                if isinstance(window, ClickerWindow):
+                    window.points = dict()
+                    window.update_tracks()
+                    window.load_points()
+            load_data_global = None
+    except Exception as e:
+        print(f"Error reloading DLC data: {e}")
 
 # for sparse data files as TSVs
 def load_tsv(tsv):
@@ -1343,7 +1366,6 @@ class ClickerWindow(pyglet.window.Window):
                     print("Detected ARB_pixel_format issue, trying software rendering fallback...")
                     # Try to force software rendering
                     try:
-                        import os
                         os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
                         os.environ['GALLIUM_DRIVER'] = 'llvmpipe'
                     except Exception:
@@ -1476,6 +1498,20 @@ class ClickerWindow(pyglet.window.Window):
         self.changed = False
 
         self.vf = int(np.round(self.frameFinder.oh / (vw * 3.)))
+
+    def data_index(self, g0):
+        """Convert a 0-based global-time index to a 0-based data array index.
+
+        When DLC data are loaded, self.points[track] is stored in camera-native
+        frame space: row N holds the annotation for physical video frame N.
+        The physical frame displayed at global time g0 is  g0 + frameFinder.offset,
+        so that is also where the annotation lives.
+
+        For non-DLC data the array is already in global-time space, so no shift.
+        """
+        if data_loaded_from_dlc:
+            return g0 + self.frameFinder.offset
+        return g0
 
     def safe_switch_to(self):
         """
@@ -1913,10 +1949,11 @@ class ClickerWindow(pyglet.window.Window):
             
         positions = self.points[track]
         non_zeros = list(set(self.points[track].nonzero()[0]))
+        _cur_idx = self.data_index(self.current_point_index - 1)
 
-        if self.current_point_index - 1 in non_zeros:
+        if _cur_idx in non_zeros and 0 <= _cur_idx < positions.shape[0]:
             self.current_marker = draw_circle(
-                positions[self.current_point_index - 1].toarray()[0],
+                positions[_cur_idx].toarray()[0],
                 radius + 4,
                 color = MARKER_COLOR,
                 batch = self.track_batch
@@ -1935,8 +1972,8 @@ class ClickerWindow(pyglet.window.Window):
                         self.drawn_points[track][i] = None
             
             # Draw marker only at current frame
-            current_array_index = self.current_point_index - 1
-            if current_array_index in non_zeros:
+            current_array_index = _cur_idx
+            if current_array_index in non_zeros and 0 <= current_array_index < positions.shape[0]:
                 self.drawn_points[track][current_array_index] = draw_circle(
                     positions[current_array_index].toarray()[0],
                     radius,
@@ -1963,7 +2000,7 @@ class ClickerWindow(pyglet.window.Window):
                             )
 
         if displaying_all_tracks:
-            current_array_index = self.current_point_index - 1
+            current_array_index = _cur_idx  # camera-native when DLC, global-time otherwise
             
             for track in self.points.keys():
                 if track != current_track_global:
@@ -1982,7 +2019,7 @@ class ClickerWindow(pyglet.window.Window):
                                     self.drawn_points[track][i] = None
                         
                         # Draw marker only for current frame
-                        if current_array_index < positions.shape[0]:
+                        if 0 <= current_array_index < positions.shape[0]:
                             pos = positions[current_array_index].toarray()[0]
                             # Only draw if position is non-zero
                             if not np.all(pos == 0):
@@ -2011,12 +2048,12 @@ class ClickerWindow(pyglet.window.Window):
         
         # In DLC mode, only show markers for current frame
         if dlc_label_mode:
-            current_array_index = self.current_point_index - 1
+            current_array_index = self.data_index(self.current_point_index - 1)
             for track in self.points.keys():
                 if track != current_track_global:
                     positions = self.points[track]
                     # Check if this track has a point at current frame
-                    if current_array_index < positions.shape[0]:
+                    if 0 <= current_array_index < positions.shape[0]:
                         pos = positions[current_array_index].toarray()[0]
                         # Only draw if position is non-zero
                         if not np.all(pos == 0):
@@ -2104,8 +2141,9 @@ class ClickerWindow(pyglet.window.Window):
                 self.current_marker.delete()
                 self.current_marker = None
 
-            if self.current_point_index - 1 in nz:
-                x, y = self.world_to_window(positions[self.current_point_index - 1].toarray()[0])
+            _cur_idx = self.data_index(self.current_point_index - 1)
+            if _cur_idx in nz and 0 <= _cur_idx < positions.shape[0]:
+                x, y = self.world_to_window(positions[_cur_idx].toarray()[0])
                 self.current_marker = draw_circle(
                     (x, y), radius + 4, 
                     color = MARKER_COLOR,
@@ -2115,8 +2153,8 @@ class ClickerWindow(pyglet.window.Window):
             # draw markers for new current track
             # In DLC mode, only draw marker for current frame
             if dlc_label_mode:
-                current_array_index = self.current_point_index - 1
-                if current_array_index in nz:
+                current_array_index = _cur_idx
+                if current_array_index in nz and 0 <= current_array_index < positions.shape[0]:
                     x, y = self.world_to_window(positions[current_array_index].toarray()[0])
                     self.drawn_points[current_track_global][current_array_index] = draw_circle(
                         (x, y), radius, 
@@ -2196,8 +2234,8 @@ class ClickerWindow(pyglet.window.Window):
     def update_drawings(self):
         global radius
         track = current_track_global
-        new_point_index = self.current_point_index - 1
-        old_point_index = self.current_point_index - 2
+        new_point_index = self.data_index(self.current_point_index - 1)
+        old_point_index = self.data_index(self.current_point_index - 2)
         
         # Guard against calling this before track data is loaded
         if track not in self.points:
@@ -2334,11 +2372,18 @@ class ClickerWindow(pyglet.window.Window):
         if not self.ensure_valid_context():
             return
 
-        new_point_index = self.current_point_index - 1
-        old_point_index = self.current_point_index - 2
+        new_point_index = self.data_index(self.current_point_index - 1)
+        old_point_index = self.data_index(self.current_point_index - 2)
+
+        # Bounds-check: don't write outside the data array (can happen if offset is large)
+        if new_point_index < 0 or new_point_index >= self.points[current_track_global].shape[0]:
+            return
 
         self.points[current_track_global][new_point_index] = np.array([x, y])
-        self.offsets_output[new_point_index] = self.offsets[self.original_index]
+        # offsets_output is always in global-time space; only meaningful for non-DLC
+        # (for DLC we rebuild it at save time from frameFinder.offset)
+        if not data_loaded_from_dlc:
+            self.offsets_output[self.current_point_index - 1] = self.offsets[self.original_index]
 
         # Get the numpy array from the sparse csc_matrix representing the coordinate plane
         # with the bottom left corner as the center
@@ -2379,10 +2424,11 @@ class ClickerWindow(pyglet.window.Window):
                                                                 batch = self.track_batch)
 
             # Draws a line to points ahead of the current one
-            if self.current_point_index in non_zero_points and positions[self.current_point_index][0] != 0:
+            next_index = new_point_index + 1
+            if next_index in non_zero_points and positions[next_index][0] != 0:
         
                 x1, y1 = self.world_to_window(positions[new_point_index])
-                x2, y2 = self.world_to_window(positions[self.current_point_index])
+                x2, y2 = self.world_to_window(positions[next_index])
                 if self.drawn_lines[track][new_point_index] is not None:
                     self.drawn_lines[track][new_point_index].delete()
                 self.drawn_lines[track][new_point_index] = draw_line(
@@ -2431,9 +2477,10 @@ class ClickerWindow(pyglet.window.Window):
                 pass  # Ignore errors if object already deleted
             self.current_marker = None
 
-        if self.current_point_index - 1 in non_zero_points:
+        _cur_idx = self.data_index(self.current_point_index - 1)
+        if _cur_idx in non_zero_points and 0 <= _cur_idx < positions.shape[0]:
             try:
-                x, y = self.world_to_window(positions[self.current_point_index - 1].toarray()[0])
+                x, y = self.world_to_window(positions[_cur_idx].toarray()[0])
                 self.current_marker = draw_circle(
                     (x, y), radius + 4, 
                     color = MARKER_COLOR, 
@@ -2445,7 +2492,7 @@ class ClickerWindow(pyglet.window.Window):
         
         # In DLC mode, update current track's regular marker too
         if dlc_label_mode:
-            current_array_index = self.current_point_index - 1
+            current_array_index = _cur_idx
             
             # Clear all markers for current track first
             if track in self.drawn_points:
@@ -2458,7 +2505,7 @@ class ClickerWindow(pyglet.window.Window):
                         self.drawn_points[track][i] = None
             
             # Draw marker at current frame for current track
-            if current_array_index in non_zero_points:
+            if current_array_index in non_zero_points and 0 <= current_array_index < positions.shape[0]:
                 try:
                     x, y = self.world_to_window(positions[current_array_index].toarray()[0])
                     self.drawn_points[track][current_array_index] = draw_circle(
@@ -2485,7 +2532,7 @@ class ClickerWindow(pyglet.window.Window):
                     
                     # Draw marker at current frame
                     other_positions = self.points[other_track]
-                    if current_array_index < other_positions.shape[0]:
+                    if 0 <= current_array_index < other_positions.shape[0]:
                         pos = other_positions[current_array_index].toarray()[0]
                         if not np.all(pos == 0):
                             try:
@@ -2614,8 +2661,8 @@ class ClickerWindow(pyglet.window.Window):
         if track not in self.points:
             return
 
-        last_added_index = self.current_point_index - 1
-        second_most_recent_index = self.current_point_index - 2
+        last_added_index = self.data_index(self.current_point_index - 1)
+        second_most_recent_index = self.data_index(self.current_point_index - 2)
 
         # Reset the current marker
         if self.current_marker is not None:
@@ -2669,8 +2716,12 @@ class ClickerWindow(pyglet.window.Window):
             if isinstance(window, ClickerWindow):
                 if self is not window:
                     try:
-                        coordinates.append([window.actual_camera_number,
-                                            window.points[current_track_global][self.current_point_index - 1].toarray()[0]])
+                        _w_idx = window.data_index(self.current_point_index - 1)
+                        if 0 <= _w_idx < window.points[current_track_global].shape[0]:
+                            coordinates.append([window.actual_camera_number,
+                                                window.points[current_track_global][_w_idx].toarray()[0]])
+                        else:
+                            coordinates.append([window.actual_camera_number, np.array([0., 0.])])
                     except Exception as e:
                         print(e)
         coordinates = sorted(coordinates)
@@ -2832,12 +2883,35 @@ class ClickerWindow(pyglet.window.Window):
     def fill_common_dictionary(self):
         global common
 
-        uvs = dict()
         for track in self.points.keys():
-            uvs[track] = copy.copy(self.points[track]).toarray()
-            uvs[track][uvs[track] == 0] = np.nan
-            common[track + '_cam_' + str(self.actual_camera_number) + '_x'] = uvs[track][:, 0]
-            common[track + '_cam_' + str(self.actual_camera_number) + '_y'] = uvs[track][:, 1]
+            if data_loaded_from_dlc:
+                # Camera-native storage: self.points[track][k] = annotation for physical frame k.
+                # Global time G maps to physical frame G + frameFinder.offset.
+                # Output length T = max(N_c - offset_c) across all camera windows so every
+                # camera's global-time range is fully represented.
+                all_windows = [w for w in pyglet.app.windows if isinstance(w, ClickerWindow)]
+                T = max(
+                    (w.points[track].shape[0] - w.frameFinder.offset
+                     for w in all_windows if track in w.points and w.points[track].shape[0] > 0),
+                    default=self.end
+                )
+                T = max(T, 1)
+                off = self.frameFinder.offset
+                N = self.points[track].shape[0]
+                out = np.full((T, 2), np.nan)
+                for G in range(T):
+                    k = G + off
+                    if 0 <= k < N:
+                        val = self.points[track][k].toarray()[0]
+                        if val[0] != 0 or val[1] != 0:
+                            out[G] = val
+                common[track + '_cam_' + str(self.actual_camera_number) + '_x'] = out[:, 0]
+                common[track + '_cam_' + str(self.actual_camera_number) + '_y'] = out[:, 1]
+            else:
+                uvs = copy.copy(self.points[track]).toarray()
+                uvs[uvs == 0] = np.nan
+                common[track + '_cam_' + str(self.actual_camera_number) + '_x'] = uvs[:, 0]
+                common[track + '_cam_' + str(self.actual_camera_number) + '_y'] = uvs[:, 1]
 
     # called for each window after the common dictionary is filled.
     # probably a more intuitive way to grab parts rather than indexing them
@@ -3177,8 +3251,14 @@ class ClickerWindow(pyglet.window.Window):
 
             offsets_out = list()
 
-            for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
-                offsets_out.append(window.offsets_output)
+            if data_loaded_from_dlc and common:
+                # DLC: offset is constant per camera; use current frameFinder.offset for all rows
+                T = len(common[sorted(common.keys())[0]])
+                for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                    offsets_out.append(np.full(T, window.frameFinder.offset, dtype=np.float64))
+            else:
+                for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                    offsets_out.append(window.offsets_output)
 
             offsets_out = np.array(offsets_out).T
 
@@ -3320,8 +3400,14 @@ class ClickerWindow(pyglet.window.Window):
 
             offsets_out = list()
 
-            for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
-                offsets_out.append(window.offsets_output)
+            if data_loaded_from_dlc and common:
+                # DLC: offset is constant per camera; use current frameFinder.offset for all rows
+                T = len(common[sorted(common.keys())[0]])
+                for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                    offsets_out.append(np.full(T, window.frameFinder.offset, dtype=np.float64))
+            else:
+                for window in sorted([w for w in pyglet.app.windows if isinstance(w, ClickerWindow)], key=lambda w: w.actual_camera_number):
+                    offsets_out.append(window.offsets_output)
 
             offsets_out = np.array(offsets_out).T
 
@@ -4206,15 +4292,30 @@ class ClickerWindow(pyglet.window.Window):
                     self.changed = True
             # Normal mode: skip to next marked point in current track
             else:
-                for k in range(self.current_point_index, self.points[current_track_global].shape[0]):
-                    if np.all(self.points[current_track_global][k].toarray()[0] != 0):
-                        self.current_point_index = k + 1
-                        current_frame = self.current_point_index
-                        self.change_marker()
-                        if sync:
-                            self.update_all_windows()
-                        self.changed = True
-                        break
+                if data_loaded_from_dlc:
+                    # Search in camera-native space, convert result back to global time
+                    start_cam = self.data_index(self.current_point_index - 1) + 1
+                    for k in range(start_cam, self.points[current_track_global].shape[0]):
+                        if np.all(self.points[current_track_global][k].toarray()[0] != 0):
+                            g = k - self.frameFinder.offset + 1  # global time (1-based)
+                            if 1 <= g <= self.end:
+                                self.current_point_index = g
+                                current_frame = self.current_point_index
+                                self.change_marker()
+                                if sync:
+                                    self.update_all_windows()
+                                self.changed = True
+                            break
+                else:
+                    for k in range(self.current_point_index, self.points[current_track_global].shape[0]):
+                        if np.all(self.points[current_track_global][k].toarray()[0] != 0):
+                            self.current_point_index = k + 1
+                            current_frame = self.current_point_index
+                            self.change_marker()
+                            if sync:
+                                self.update_all_windows()
+                            self.changed = True
+                            break
         # skip to previously marked point or previous DLC label frame (with Shift)
         elif symbol == key.LEFT:
             # DLC mode: Shift+Left arrow goes to previous label frame
@@ -4232,29 +4333,41 @@ class ClickerWindow(pyglet.window.Window):
                     self.changed = True
             # Normal mode: skip to previously marked point
             else:
-                for k in range(2, self.current_point_index):
-                    if np.all(self.points[current_track_global][self.current_point_index - k].toarray()[0] != 0):
-                        self.current_point_index = self.current_point_index - k + 1
-                        current_frame = self.current_point_index
-                        self.change_marker()
-                        if sync:
-                            self.update_all_windows()
-                        self.changed = True
-                        break
+                if data_loaded_from_dlc:
+                    # Search backwards in camera-native space, convert back to global time
+                    start_cam = self.data_index(self.current_point_index - 1) - 1
+                    for k in range(start_cam, -1, -1):
+                        if np.all(self.points[current_track_global][k].toarray()[0] != 0):
+                            g = k - self.frameFinder.offset + 1  # global time (1-based)
+                            if 1 <= g <= self.end:
+                                self.current_point_index = g
+                                current_frame = self.current_point_index
+                                self.change_marker()
+                                if sync:
+                                    self.update_all_windows()
+                                self.changed = True
+                            break
+                else:
+                    for k in range(2, self.current_point_index):
+                        if np.all(self.points[current_track_global][self.current_point_index - k].toarray()[0] != 0):
+                            self.current_point_index = self.current_point_index - k + 1
+                            current_frame = self.current_point_index
+                            self.change_marker()
+                            if sync:
+                                self.update_all_windows()
+                            self.changed = True
+                            break
         elif symbol == key.UP:
             if dlc_label_mode:
                 print("Offset adjustment disabled in DLC labeling mode")
             else:
-                # if not self.base:
                 self.frameFinder.offset = self.frameFinder.offset + 1
-                # Update the global offset for this camera so it applies to all frames
                 self.offsets[self.original_index] = self.frameFinder.offset
-                # Update all offsets_output values to the new offset for consistency
-                self.offsets_output[:] = self.frameFinder.offset
+                if not data_loaded_from_dlc:
+                    self.offsets_output[:] = self.frameFinder.offset
                 self.changed = True
                 current_frame = self.current_point_index
                 self.change_marker()
-                print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
                 if sync:
                     self.update_all_windows()
 
@@ -4262,16 +4375,13 @@ class ClickerWindow(pyglet.window.Window):
             if dlc_label_mode:
                 print("Offset adjustment disabled in DLC labeling mode")
             else:
-                # if not self.base:
                 self.frameFinder.offset = self.frameFinder.offset - 1
-                # Update the global offset for this camera so it applies to all frames
                 self.offsets[self.original_index] = self.frameFinder.offset
-                # Update all offsets_output values to the new offset for consistency
-                self.offsets_output[:] = self.frameFinder.offset
+                if not data_loaded_from_dlc:
+                    self.offsets_output[:] = self.frameFinder.offset
                 self.changed = True
                 current_frame = self.current_point_index
                 self.change_marker()
-                print(f"Camera {self.actual_camera_number} offset changed to {self.frameFinder.offset}")
                 if sync:
                     self.update_all_windows()
 
@@ -4365,10 +4475,12 @@ class ClickerWindow(pyglet.window.Window):
         # delete the point in the current frame and track
         elif symbol == key.D and (modifiers == 0 or modifiers == 16):
             positions = copy.copy(self.points[current_track_global])
-            positions[self.current_point_index - 1] = np.asarray([0., 0.])
-            positions.eliminate_zeros()
-            self.points[current_track_global] = positions
-            self.delete_point()
+            _del_idx = self.data_index(self.current_point_index - 1)
+            if 0 <= _del_idx < positions.shape[0]:
+                positions[_del_idx] = np.asarray([0., 0.])
+                positions.eliminate_zeros()
+                self.points[current_track_global] = positions
+                self.delete_point()
             
             # Update epipolar lines on all windows if DLT coefficients are available
             if DLTCoefficients is not None:
@@ -4442,10 +4554,12 @@ class ClickerWindow(pyglet.window.Window):
 
         elif buttons & mouse.RIGHT:
             positions = copy.copy(self.points[current_track_global])
-            positions[self.current_point_index - 1] = np.asarray([0., 0.])
-            positions.eliminate_zeros()
-            self.points[current_track_global] = positions
-            self.delete_point()
+            _del_idx = self.data_index(self.current_point_index - 1)
+            if 0 <= _del_idx < positions.shape[0]:
+                positions[_del_idx] = np.asarray([0., 0.])
+                positions.eliminate_zeros()
+                self.points[current_track_global] = positions
+                self.delete_point()
             
             # Update epipolar lines on all windows if DLT coefficients are available
             if DLTCoefficients is not None:
