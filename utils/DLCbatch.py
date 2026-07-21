@@ -19,6 +19,13 @@ Directory structure expected:
 Output:
     CSV files with columns: track_x, track_y, track_z, track_error, track_ncams, track_score
 
+Frame alignment:
+    Row 0 of every camera's H5 file is assumed to be the same instant. Where that
+    is not true - cameras saving different numbers of pre-trigger frames, for
+    instance - pass --frame-offsets with a JSON file giving the rows to delay
+    each video by. Determining those offsets is the caller's job, since the
+    information lives in whatever metadata the acquisition system wrote.
+
 NOTES:
 Currently in testing mode and not fully documented!
 """
@@ -27,6 +34,7 @@ import os
 import sys
 import argparse
 import glob
+import json
 import pandas as pd
 import numpy as np
 from collections import defaultdict
@@ -45,13 +53,16 @@ except ImportError:
 
 
 class DLCBatchProcessor:
-    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True, 
-                 use_filtered=True, shuffle=1):
+    def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True,
+                 use_filtered=True, shuffle=1, frame_offsets=None):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
         self.optimize_cameras = optimize_cameras
         self.use_filtered = use_filtered
         self.shuffle = shuffle
+        # {h5-name-prefix: rows to delay that camera by}; empty means every
+        # camera starts at row 0, which is the behaviour when no offsets are given.
+        self.frame_offsets = frame_offsets or {}
         self.camera_profile = None
         self.dlt_coefficients = None
         self.videos_dir = os.path.join(data_dir, 'videos-raw')
@@ -102,6 +113,7 @@ class DLCBatchProcessor:
         self.logger.info(f"Camera optimization: {self.optimize_cameras}")
         self.logger.info(f"Use filtered files: {self.use_filtered}")
         self.logger.info(f"Shuffle number: {self.shuffle}")
+        self.logger.info(f"Frame offsets supplied for: {len(self.frame_offsets)} video(s)")
         self.logger.info("="*60)
     
     def _validate_directories(self):
@@ -172,6 +184,22 @@ class DLCBatchProcessor:
         self.dlt_coefficients = np.loadtxt(dlt_file, delimiter=',')
         self.dlt_coefficients = self.dlt_coefficients.T  # Transpose like argus-click does
     
+    def _frame_offset_for(self, h5_file):
+        """Rows to delay one camera's data by, from the supplied offset table.
+
+        Keys are matched as prefixes of the H5 basename so a caller can key the
+        table by video name (cam1_trial) without knowing the DLC scorer suffix;
+        the longest matching key wins. Returns 0 when nothing matches, so an
+        absent or partial table simply leaves cameras unshifted.
+        """
+        if not self.frame_offsets:
+            return 0
+        h5_base = os.path.basename(h5_file)
+        matches = [key for key in self.frame_offsets if h5_base.startswith(key)]
+        if not matches:
+            return 0
+        return int(self.frame_offsets[max(matches, key=len)])
+
     def _find_trials(self):
         """Find all unique trials based on H5 file naming patterns."""
         all_h5_files = glob.glob(os.path.join(self.videos_dir, '*.h5'))
@@ -268,7 +296,11 @@ class DLCBatchProcessor:
         # not 0 and 2). Use the position within h5_files for that indexing.
         for cam_pos, (cam_num, h5_file) in enumerate(h5_files):
             self.logger.info(f"  Loading camera {cam_num}: {os.path.basename(h5_file)}")
-            
+
+            frame_offset = self._frame_offset_for(h5_file)
+            if frame_offset:
+                self.logger.info(f"    Delaying cam{cam_num} by {frame_offset} frames")
+
             try:
                 # Load H5 file - try common DLC keys
                 df = None
@@ -345,7 +377,17 @@ class DLCBatchProcessor:
                         low_likelihood_mask = likelihood <= self.likelihood_threshold
                         x_vals[low_likelihood_mask] = np.nan
                         y_vals[low_likelihood_mask] = np.nan
-                        
+
+                        # Pad the front so that row i means the same instant in
+                        # every camera. Padded rows are NaN and score below any
+                        # threshold, so they read as "this camera saw nothing yet"
+                        # and are never triangulated.
+                        if frame_offset:
+                            pad = np.full(frame_offset, np.nan)
+                            x_vals = np.concatenate([pad, x_vals])
+                            y_vals = np.concatenate([pad, y_vals])
+                            likelihood = np.concatenate([pad, likelihood])
+
                         # Store the filtered data
                         if cam_num not in all_data:
                             all_data[cam_num] = {}
@@ -355,8 +397,8 @@ class DLCBatchProcessor:
                             'likelihood': likelihood
                         }
                 
-                max_frames = max(max_frames, len(df))
-                
+                max_frames = max(max_frames, len(df) + frame_offset)
+
             except Exception as e:
                 self.logger.error(f"    Error loading {h5_file}: {e}")
                 continue
@@ -835,8 +877,21 @@ Output CSV columns for each track (example for 'L1hip'):
                        help='Use non-filtered H5 files')
     parser.add_argument('--shuffle', '-s', type=int, default=1,
                        help='Shuffle number to use (default: 1)')
-    
+    parser.add_argument('--frame-offsets', default=None,
+                       help='JSON file of per-video frame offsets, e.g. '
+                            '{"cam3_trial1": 10} to delay that video by 10 frames. '
+                            'Keys are matched as prefixes of the H5 filename. '
+                            'Cameras with no entry are not shifted (default: none)')
+
     args = parser.parse_args()
+
+    frame_offsets = None
+    if args.frame_offsets:
+        if not os.path.exists(args.frame_offsets):
+            print(f"Error: Frame offsets file does not exist: {args.frame_offsets}")
+            sys.exit(1)
+        with open(args.frame_offsets) as f:
+            frame_offsets = json.load(f)
     
     # Validate data directory
     if not os.path.exists(args.data_directory):
@@ -851,7 +906,8 @@ Output CSV columns for each track (example for 'L1hip'):
             args.threshold, 
             optimize_cameras=args.optimize_cameras,
             use_filtered=args.filtered,
-            shuffle=args.shuffle
+            shuffle=args.shuffle,
+            frame_offsets=frame_offsets
         )
         processor.process_all_trials()
         
