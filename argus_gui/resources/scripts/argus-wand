@@ -123,7 +123,7 @@ if __name__ == '__main__':
                         help="CSV file with unpaired UV pixel coordinates. Has 2*(number of cameras)*(number of tracks) columns: either a single track digitized across many frames, or multiple tracks (multiple points) in any number of frames, are both accepted")
 
     parser.add_argument("--reference_points", default='',
-                        help="CSV file with three points marked in pixel coordinates. One line, and has 6*(number of cameras) columns")
+                        help="CSV file with reference points marked in pixel coordinates. Has 2*(number of cameras)*(number of tracks) columns. For Axis points and Plane, either a single track digitized down the rows (legacy: one point per row, track order = role) or multiple tracks (one point per track, track order = role: origin then axis points, or plane points) marked in a common frame is accepted. Gravity must be a single track (2*(number of cameras) columns), a time series of one falling point")
 
     parser.add_argument("--scale", default='1',
                         help="Measured distance between paired points used to define a scale")
@@ -148,7 +148,7 @@ if __name__ == '__main__':
     parser.add_argument("--choose_reference", action="store_true",
                         help="Use this argument to have Argus-Wand optimize the choice of reference camera by counting the number of triangulatable points for each choice")
     parser.add_argument("--reference_type",
-                        help="Type of reference points provided: Axis points (default) 1-4 points specifying the origin and axes, Gravity - a gravitational acceleration recording, Plane - 3+ points specifying the X-Y plane", default="Axis points")
+                        help="Type of reference points provided: Axis points (default) 1-4 points specifying the origin and axes, Gravity - a gravitational acceleration recording, Plane - 3+ points specifying the X-Y plane. Axis points and Plane may be provided as multiple tracks (one reference point per track); Gravity must be a single track", default="Axis points")
     parser.add_argument("--recording_frequency", help="Recording frequency in Hz for gravitational acceleration determination", default="100")
                         
     args = parser.parse_args()
@@ -183,24 +183,83 @@ if __name__ == '__main__':
     if args.reference_points:
         print('Loading reference points')
         ref = pandas.read_csv(args.reference_points, index_col=False).values
-        
-        # trim to the rows with data, inclusive of any interior rows of all NaNs
-        # changed on 2020-06-18 by Ty Hedrick
-        idx = np.where(np.sum(np.isnan(ref),1)<ref.shape[1])
-        ref = ref[idx[0][0]:idx[0][-1]+1,:]
-        
-        # old way - trims all rows with any NaNs, tends to break gravity calibration
-        '''
-        toDel = list()
-        # take out NaNs
-        for k in range(ref.shape[0]):
-            if True in np.isnan(ref[k]):
-                toDel.append(k)
-        ref = np.delete(ref, toDel, axis=0)
-        '''
-        
-        
-        
+
+        # Disambiguate single-track (legacy) vs multi-track (Axis points / Plane only) files
+        # by column count: ntracks = (number of columns) / (2 * number of cameras).
+        ncams = cams.shape[0]
+        block = 2 * ncams
+        ncols = ref.shape[1]
+
+        if block == 0 or ncols % block != 0:
+            print('Incorrect shape of reference points! Columns must be a multiple of 2*(number of cameras).')
+            sys.exit()
+        ntracks = ncols // block
+
+        # Gravity must always be a single time series of one falling point; multiple tracks
+        # are meaningless for gravity and are rejected outright.
+        if args.reference_type == 'Gravity' and ntracks != 1:
+            print('Gravity reference must be a single track (2*(number of cameras) columns). A '
+                  'multi-track file was provided; gravity is a time series of one falling point '
+                  'and cannot use multiple tracks.')
+            sys.exit()
+
+        if ntracks == 1:
+            # LEGACY path - unchanged for all reference types (Axis points, Plane, Gravity)
+
+            # trim to the rows with data, inclusive of any interior rows of all NaNs
+            # changed on 2020-06-18 by Ty Hedrick
+            idx = np.where(np.sum(np.isnan(ref),1)<ref.shape[1])
+            ref = ref[idx[0][0]:idx[0][-1]+1,:]
+
+            # old way - trims all rows with any NaNs, tends to break gravity calibration
+            '''
+            toDel = list()
+            # take out NaNs
+            for k in range(ref.shape[0]):
+                if True in np.isnan(ref[k]):
+                    toDel.append(k)
+            ref = np.delete(ref, toDel, axis=0)
+            '''
+        else:
+            # NEW multi-track path - Axis points / Plane only (Gravity already rejected above).
+            # Each track is one physical reference point; track order = role (track 1 = origin,
+            # track 2 = next axis point, etc. for Axis points; plane points in order for Plane).
+            if args.reference_type == 'Axis points':
+                if not (2 <= ntracks <= 4):
+                    print('Incorrect number of reference tracks for Axis points! A multi-track '
+                          'Axis points reference file must have between 2 and 4 tracks '
+                          '(origin plus up to 3 axis points), got {0}.'.format(ntracks))
+                    sys.exit()
+            elif args.reference_type == 'Plane':
+                if ntracks < 3:
+                    print('Incorrect number of reference tracks for Plane! A multi-track Plane '
+                          'reference file must have at least 3 tracks (3 or more plane points), '
+                          'got {0}.'.format(ntracks))
+                    sys.exit()
+
+            # Find the first row where every track is "digitized": a track is digitized in a
+            # row when at least 2 cameras have BOTH u and v finite for that track (a point needs
+            # >=2 camera views to be triangulated).
+            track_digitized = np.zeros((ref.shape[0], ntracks), dtype=bool)
+            for t in range(ntracks):
+                track_block = ref[:, t * block:(t + 1) * block]
+                cams_present = np.zeros((ref.shape[0], ncams), dtype=bool)
+                for c in range(ncams):
+                    u = track_block[:, 2 * c]
+                    v = track_block[:, 2 * c + 1]
+                    cams_present[:, c] = np.isfinite(u) & np.isfinite(v)
+                track_digitized[:, t] = np.sum(cams_present, axis=1) >= 2
+
+            full_rows = np.where(np.all(track_digitized, axis=1))[0]
+            if full_rows.shape[0] == 0:
+                print('No single frame has all {0} reference tracks digitized in at least 2 '
+                      'cameras each. Multi-track reference points require one frame where every '
+                      'track is marked.'.format(ntracks))
+                sys.exit()
+
+            r = full_rows[0]
+            ref = np.vstack([ref[r, t * block:(t + 1) * block] for t in range(ntracks)])
+
         if ref.shape[1] != 2 * cams.shape[0]:
             print('Incorrect shape of reference points! Make sure they are formatted according to the documentation.')
             sys.exit()

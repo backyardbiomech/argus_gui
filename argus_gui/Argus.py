@@ -355,7 +355,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wand_cams_button.clicked.connect(self.add)
         self.wand_refs = QtWidgets.QLineEdit()
         self.wand_refs_button = QtWidgets.QPushButton("Select reference points")
-        self.wand_refs_button.setToolTip("Open a CSV file with axes pixel coordinates")
+        self.wand_refs_button.setToolTip(
+            "Open a CSV file with reference points in pixel coordinates. For Axis points and "
+            "Plane, accepts either a single track digitized down the rows (one point per row, "
+            "track order = role) or multiple tracks (one reference point per track, track order "
+            "= role) marked in a common frame. Gravity must be a single track (a falling point "
+            "recorded over time)"
+        )
         self.wand_refs_button.clicked.connect(self.add)
 
         # reference point options
@@ -365,7 +371,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.wand_reftype.addItem(key)
         self.wand_reftype.currentIndexChanged.connect(self.updateFreqBoxState)
         self.wand_reftype.setToolTip(
-            "Set the reference type. \nAxis points are 1-4 points defining the origin and axes, \nGravity is an object accelerating due to gravity, \nPlane are 3+ points that define the X-Y plane"
+            "Set the reference type. \nAxis points are 1-4 points defining the origin and axes, \nGravity is an object accelerating due to gravity, \nPlane are 3+ points that define the X-Y plane. \nAxis points and Plane accept multiple tracks (one reference point per track); Gravity must be a single track"
         )
         # recording frequency
         self.wand_freq_label = QtWidgets.QLabel("Recording frequency (fps)")

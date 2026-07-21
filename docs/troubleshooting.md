@@ -153,7 +153,7 @@ argus_env\Scripts\Activate.ps1
 1. **Check input data**:
    - paired points `-xypts.csv` should have 4 columns per camera (2 per track)
    - unpaired points `-xypts.csv` files should have a multiple of 2 columns per camera: 2*(number of cameras) columns per track, for one or more tracks
-   - reference points `-xypts.csv` files should have 2 columns per camera (a single track)
+   - reference points `-xypts.csv` files should have 2*(number of cameras) columns per track, for one or more tracks: `Axis points` and `Plane` types accept a single track (one point per row) or multiple tracks (one reference point per track, marked in a common frame); `Gravity` must be a single track
 
 **Problem**: Many error messages or high reprojection errors or wandscore
 
