@@ -93,7 +93,8 @@ def perform_wand_calibration(args, unpaired_points, paired_points, ref, cams):
     if unpaired_points is not None:
         if unpaired_points.shape[1] % (2 * cams.shape[0]) != 0:
             print(
-                'Incorrect shape of unpaired points! Unpaired points must have a multiple of 2*(number of cameras) columns')
+                'Incorrect shape of unpaired points! Unpaired points must have a multiple of 2*(number of cameras) columns '
+                '(2*(number of cameras) per track; one or more tracks are allowed)')
             sys.exit()
     oCPs = args.output_camera_profiles
 
@@ -119,7 +120,7 @@ if __name__ == '__main__':
                         help="CSV file with paired UV pixel coordinates Has 4*(number of cameras) columns")
 
     parser.add_argument("--unpaired_points", default='',
-                        help="CSV file with unpaired UV pixel coordinates. Has a multiple of 2*(number of cameras) columns")
+                        help="CSV file with unpaired UV pixel coordinates. Has 2*(number of cameras)*(number of tracks) columns: either a single track digitized across many frames, or multiple tracks (multiple points) in any number of frames, are both accepted")
 
     parser.add_argument("--reference_points", default='',
                         help="CSV file with three points marked in pixel coordinates. One line, and has 6*(number of cameras) columns")

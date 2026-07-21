@@ -130,7 +130,7 @@ Camera extrinsics (location and orientation relative to a common coordinate syst
 ![Wand Tab](images/wand_img.png)
 
 1. **Select paired points file**: This should be a `-xypts.csv` file saved from **Clicker** containing two tracks that mark two points a constant distance apart. The distance between these two points will be used to determine the scale of the 3D reconstruction.
-2. **Select unpaired points file**: This should be a `-xypts.csv` file saved from **Clicker**. These can be static objects in the background, or moving subjects as long as the same actual object is accurately tracked in multiple cameras in the same time-synced frames. The more of the filming volume covered by unpaired points, the better the camera extrinsics will be estimated. These should all be in a single clicker track. 
+2. **Select unpaired points file**: This should be a `-xypts.csv` file saved from **Clicker**. These can be static objects in the background, or moving subjects as long as the same actual object is accurately tracked in multiple cameras in the same time-synced frames. The more of the filming volume covered by unpaired points, the better the camera extrinsics will be estimated. This file may contain a single clicker track digitized across many frames, or multiple tracks (multiple points), each adding another 2*(number of cameras) columns. 
 3. **Select reference points file**: This should be a `-xypts.csv` file saved from **Clicker** containing a single track that marks 1-4 points in all cameras. This will be used to determine the origin and orientation of the coordinate system for the 3D reconstruction: 1 point will set the origin, 2 points will set the z-axis (plumb line), 3 points will set a horizontal plane with the z-axis calculated, and 4 points will set the origin, x, y, and z axes with the right-hand rule. You can also track a free-falling object in the filming volume, such as a ball, and select "Gravity" as the point type to calculate the z-axis. 
 4. **Select camera profile**: This should be a camera profile file that contains the camera intrinsics for your specific camera. You can use one of the included profiles or build your own using **Patterns** and **Calibrate**.
 5. **Wand Length**: Enter the length of the wand. The units used here will set the units for the 3D reconstruction.
@@ -328,11 +328,11 @@ We have found that the best results for 3D reconstruction are achieved by using 
     + Save the tracked points (`s`) as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `wandpts`, which will save the file as `wandpts-xypts.csv`.
     + Close the video windows, but do not close the **Clicker** module. You will need it again later to track unpaired points.
 3. **Track unpaired points**: Click **Go** to reload the video windows, but do not load the wand data. 
-      + This will recreate your video windows, but now with only "Track 1". Unpaired points files should only have one track, so do not add a new track.
+      + This will recreate your video windows, but now with only "Track 1". Unpaired points files may use a single track digitized across many frames, or multiple tracks (multiple points) marked in any number of frames — add a new track in Clicker if you want to mark more than one point.
       + Use the options dialog to turn off auto frame advance and make sure cameras are synchronized.
       + Track any static objects in the background or slowly moving subjects that are visible in all cameras. 
       + You can use slowly moving wand ends as unpaired points to add calibration points to parts of the volume that are not covered by the paired points. 
-      + Since this is all the same track, mark an single object in all cameras, then advance a frame (`f`) and mark the next object in all cameras, and so on.
+      + If using a single track, mark one object in all cameras, then advance a frame (`f`) and mark the next object in all cameras, and so on. If using multiple tracks, mark each point with its own track in all cameras for the same frame.
       + Save the tracked points as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `unpairedpts`, which will save the file as `unpairedpts-xypts.csv`.
 4. **Run the wand calibration**: Open the [**Wand**](#wand) module and load the paired and unpaired points files created in the previous steps. 
    + Select the camera profile file you created earlier (either from **Calibrate** or the dummy file if you are shooting in linear mode).
@@ -408,11 +408,11 @@ Because a lot of files are created during the reconstruction process, it is impo
    + Save the tracked points (`s`) as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `wandpts`, which will save the file as `wandpts-xypts.csv`.
    + Close the video windows, but do not close the **Clicker** module. You will need it again later to track unpaired points.
 4. **Track unpaired points**: Click **Go** to reload the video windows, but do not load the wand data.
-   + This will recreate your video windows, but now with only "Track 1". Unpaired points files should only have one track, so do not add a new track.
+   + This will recreate your video windows, but now with only "Track 1". Unpaired points files may use a single track digitized across many frames, or multiple tracks (multiple points) marked in any number of frames — add a new track in Clicker if you want to mark more than one point.
    + Use the options dialog to turn off auto frame advance and make sure cameras are synchronized.
    + Track any static objects in the background or slowly moving subjects that are visible in all cameras.
    + You can use slowly moving wand ends as unpaired points to add calibration points to parts of the volume that are not covered by the paired points.
-   + Since this is all the same track, mark an single object in all cameras, then advance a frame (`f`) and mark the next object in all cameras, and so on.
+   + If using a single track, mark one object in all cameras, then advance a frame (`f`) and mark the next object in all cameras, and so on. If using multiple tracks, mark each point with its own track in all cameras for the same frame.
    + Save the tracked points as a `-xypts.csv` file, which will be used later. Save it in the same directory as the video files, and use a prefix name like `unpairedpts`, which will save the file as `unpairedpts-xypts.csv`.
 5. **Track a reference object**:  NOTE that Argus uses a vertical z-axis with right-hand rule.
    + Open the videos containing the reference object in a new **Clicker** instance.

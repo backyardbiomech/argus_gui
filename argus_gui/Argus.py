@@ -342,7 +342,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.uppts = QtWidgets.QLineEdit()
         self.uppts_button = QtWidgets.QPushButton("Select unpaired points file")
         self.uppts_button.setToolTip(
-            "Open a CSV file with unpaired (background) pixel coordinates"
+            "Open a CSV file with unpaired (background) pixel coordinates. Accepts either "
+            "one track digitized across frames or multiple tracks (multiple points) in any "
+            "number of frames"
         )
         self.uppts_button.clicked.connect(self.add)
         self.wand_cams = QtWidgets.QLineEdit()

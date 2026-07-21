@@ -89,11 +89,11 @@ class sbaArgusDriver():
             # get bad indices and remove them from a list of all indices to get good indices
             badindices = list()
             p = pts[:, k * 2 * self.ncams:(k + 1) * 2 * self.ncams]
-            for k in range(p.shape[0]):
-                if True in np.isnan(p[k][2 * (self.ncams - 1):]):
-                    badindices.append(k)
-                elif not False in np.isnan(p[k][:2 * (self.ncams - 1)]):
-                    badindices.append(k)
+            for row in range(p.shape[0]):
+                if True in np.isnan(p[row][2 * (self.ncams - 1):]):
+                    badindices.append(row)
+                elif not False in np.isnan(p[row][:2 * (self.ncams - 1)]):
+                    badindices.append(row)
             goodindices = np.arange(pts.shape[0])
             goodindices = np.delete(goodindices, badindices, axis=0)
             ret.append([np.delete(p, badindices, axis=0), goodindices])
