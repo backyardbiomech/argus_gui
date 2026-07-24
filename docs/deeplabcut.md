@@ -24,6 +24,16 @@ Even for single-camera setups, DeepLabCut may not produce perfect tracking data.
 5. When you are done, type `O` again to open the options window. You can either save it as a dense or spare Argus file, or select the `DeepLabCut .h5` option to save the data back to a DeepLabCut .h5 file. If you use this option, the likelihood values for any points you edited will be set to 1.0.
 6. Note that to use this edited file in DeepLabCut functions (like `create_labeled_video`), you will need to rename the file to match the original DeepLabCut file name, so make a copy of the original file and put in a new folder before renaming the edited file.
 
+#### Saving only your manual corrections
+
+Saving in any of the formats above writes out the whole track: your corrections and the model's output together, frozen into one file. That is a problem if you expect to refine the model and re-analyze the videos later, because the new run produces better DLC data everywhere except the frames you already fixed by hand — and those hand-fixed points are the ones you were most sure about.
+
+The `Save manual corrections only` button in the options window (or `Ctrl+M`) writes just the points that differ from the DeepLabCut data you loaded: points you moved, points you added, and points you deleted. Nothing the model got right is copied. One file is written per camera, named after the video rather than the network — `cam1_trial3DLC_resnet50_projJun1shuffle1_500000_filtered.h5` produces `cam1_trial3_manual.csv` — and placed next to the .h5 files it came from.
+
+`utils/DLCbatch.py` finds those files on its own and substitutes them for the model's output at exactly the frames and cameras they cover. Because the filename keys off the video and not the network, the same corrections keep applying after you retrain and re-analyze under a new model name. A deleted point is recorded as a blank x and y, meaning "the model is wrong here, discard it," so a bad point stays gone rather than reappearing from the new run. Pass `--no-manual-corrections` to ignore the files and triangulate the raw DLC output instead.
+
+Coordinates in these files are in DeepLabCut's own pixel space (origin at top left) and frames are each video's own 0-based frame numbers, with no offset applied, so a corrections file stays valid however the cameras are aligned with each other afterwards.
+
 ### 2. Using Argus Clicker to export DeepLabCut data for training
 If you have previously used Argus Clicker (or DLTdv) to manually track points in a video, and you want to use that data to train a DeepLabCut model, you can export the data in the correct format.
 A function to do that is available in [DLCconverterDLT](https://github.com/backyardbiomech/DLCconverterDLT), and will be included in a future version of Argus.

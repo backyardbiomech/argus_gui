@@ -84,6 +84,7 @@ from scipy.sparse import csc_matrix, lil_matrix
 import time
 import numpy as np
 import copy
+import re
 import threading
 
 from PySide6 import QtWidgets, QtCore
@@ -367,7 +368,14 @@ class OptionsPopupWindow(QtWidgets.QDialog):
 
         self.dlc_button = QtWidgets.QPushButton("Load DeepLabCut Data")
         self.dlc_button.clicked.connect(self.load_dlc_data)
-        
+
+        self.dlc_corrections_button = QtWidgets.QPushButton("Save manual corrections only")
+        self.dlc_corrections_button.setToolTip(
+            "Save only the points you changed by hand, without the DeepLabCut output. "
+            "DLCbatch.py substitutes them for the model's output at those frames, so "
+            "they survive re-analysing the videos with a refined model.")
+        self.dlc_corrections_button.clicked.connect(self.save_manual_corrections)
+
         # DeepLabCut likelihood threshold input
         global dlc_likelihood_threshold
         self.dlc_likelihood_label = QtWidgets.QLabel("Likelihood threshold:")
@@ -440,15 +448,16 @@ class OptionsPopupWindow(QtWidgets.QDialog):
         layout.addWidget(self.dlc_likelihood_label, 19, 0)
         layout.addWidget(self.dlc_likelihood_input, 19, 1)
         layout.addWidget(self.dlc_button, 20, 0, 1, 3)
+        layout.addWidget(self.dlc_corrections_button, 21, 0, 1, 3)
 
         divider4 = QtWidgets.QFrame()
         divider4.setFrameShape(QtWidgets.QFrame.HLine)
         divider4.setFrameShadow(QtWidgets.QFrame.Sunken)
         exportlabel = QtWidgets.QLabel("Video Export")
-        layout.addWidget(divider4, 21, 0, 1, 3)
-        layout.addWidget(exportlabel, 22, 0, 1, 3)
-        layout.addWidget(self.save_labeled_button, 23, 0, 1, 3)
-        layout.addWidget(self.okbutton, 24, 2)
+        layout.addWidget(divider4, 22, 0, 1, 3)
+        layout.addWidget(exportlabel, 23, 0, 1, 3)
+        layout.addWidget(self.save_labeled_button, 24, 0, 1, 3)
+        layout.addWidget(self.okbutton, 25, 2)
 
     def accept(self):
         """Override accept to save the likelihood threshold value and re-filter DLC data if needed"""
@@ -724,6 +733,17 @@ class OptionsPopupWindow(QtWidgets.QDialog):
                 f"Failed to load DeepLabCut data: {str(e)}"
             )
 
+    def save_manual_corrections(self):
+        """Write out just the hand-edited points (the work is done per camera window)."""
+        import pyglet
+
+        video_windows = [w for w in pyglet.app.windows if isinstance(w, ClickerWindow)]
+        if not video_windows:
+            QtWidgets.QMessageBox.warning(None, "Error",
+                "No video windows are currently open.")
+            return
+        video_windows[0].save_manual_corrections()
+
     def save_labeled_videos(self):
         """Generate labeled videos by overlaying xypts marker data on the loaded videos."""
         import importlib.util
@@ -889,6 +909,11 @@ outputDLC = False
 data_loaded_from_dlc = False  # Track if current data was loaded from DLC files
 dlc_scorer = []  # List of scorer names for each video/camera, empty if no DLC data loaded
 dlc_h5_file_paths = []  # Store H5 file paths for re-filtering when threshold changes
+# Pristine copy of the DLC data as it was last loaded. Kept so that a save can
+# tell the user's own edits apart from untouched model output; see
+# ClickerWindow.collect_manual_corrections.
+dlc_baseline = None
+dlc_individuals = []  # Individual names when multi-animal DLC data are loaded
 global_filename = ''
 rgb = True
 vw = 15
@@ -913,6 +938,37 @@ camera_filename = ''
 ZOOM_IN_FACTOR = 1.2
 ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR
 
+# Suffix for the manual-corrections files written by save_manual_corrections.
+# utils/DLCbatch.py looks for the same suffix when it triangulates, so the two
+# must be changed together.
+MANUAL_CORRECTIONS_SUFFIX = '_manual.csv'
+
+
+def dlc_video_base(name):
+    """Strip DeepLabCut's model suffix from an H5 or video filename.
+
+    'cam1_trial3DLC_resnet50_projJun1shuffle1_500000_filtered.h5' -> 'cam1_trial3'
+
+    Manual corrections are named after the video rather than the network so they
+    keep applying after the videos are re-analysed with a refined model.
+    """
+    stem = os.path.splitext(os.path.basename(name))[0]
+    return re.split(r'DLC_|DeepCut_', stem)[0]
+
+
+def split_dlc_track_name(track):
+    """Split an Argus track name into (individual, bodypart).
+
+    Multi-animal tracks are stored as '<individual>_<bodypart>', and individual
+    names may themselves contain underscores, so match against the individuals
+    that were actually loaded rather than splitting on the first underscore.
+    Single-animal projects have no individual, giving ('', track).
+    """
+    for ind in sorted(dlc_individuals, key=len, reverse=True):
+        if track.startswith(ind + '_'):
+            return ind, track[len(ind) + 1:]
+    return '', track
+
 
 # called once to load the CSV into a numpy array a populate the track list, expects a header
 def load_csv(csv):
@@ -922,6 +978,7 @@ def load_csv(csv):
     global current_track_global
     global data_loaded_from_dlc
     global dlc_scorer
+    global dlc_baseline
 
     # sys.stdout.flush()
 
@@ -949,6 +1006,7 @@ def load_csv(csv):
     # Set flag to indicate data was NOT loaded from DLC and clear scorer list
     data_loaded_from_dlc = False
     dlc_scorer = []
+    dlc_baseline = None
 
 def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     """
@@ -964,6 +1022,8 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     global data_loaded_from_dlc
     global dlc_scorer
     global dlc_h5_file_paths
+    global dlc_baseline
+    global dlc_individuals
 
     # load dlc file for each camera
     # number of cameras is determined by how many windows are open
@@ -1204,6 +1264,13 @@ def load_dlc(h5_files, like=0.9, flipy=True, splitind = False):
     data_loaded_from_dlc = True
     dlc_h5_file_paths = h5_files.copy()  # Store the file paths for re-filtering
 
+    # Remember what the model said, before the user touches anything. Saving
+    # manual corrections diffs against this, so it is refreshed on every load -
+    # including a reload triggered by a likelihood-threshold change, where the
+    # caller re-applies the user's edits on top of the new baseline.
+    dlc_baseline = load_data_global.copy()
+    dlc_individuals = list(individuals) if madlc else []
+
 def reload_dlc_data():
     """Re-load DLC data from disk with the current likelihood threshold.
 
@@ -1234,6 +1301,7 @@ def load_tsv(tsv):
     global data_loaded_from_dlc
     global dlc_scorer
     global dlc_h5_file_paths
+    global dlc_baseline
 
     try:
         # load the file, expects a header
@@ -1257,6 +1325,7 @@ def load_tsv(tsv):
         data_loaded_from_dlc = False
         dlc_scorer = []  # Clear scorer list since this is not DLC data
         dlc_h5_file_paths = []  # Clear H5 file paths since this is not DLC data
+        dlc_baseline = None  # Nothing to diff manual corrections against
     except:
         QtWidgets.QMessageBox.warning(None,
             "Error",
@@ -3686,6 +3755,164 @@ class ClickerWindow(pyglet.window.Window):
             print(f"Error extracting camera data for camera {window.actual_camera_number}: {e}")
             return None
     
+    def collect_manual_corrections(self):
+        """Rows of this camera where the points differ from the DLC data as loaded.
+
+        Returns a list of (frame, individual, bodypart, x, y) records in
+        DeepLabCut pixel space (origin top-left), where frame is this camera's
+        own 0-based video frame. x and y are None where the user deleted a point
+        the model had produced, which records "the model is wrong here" rather
+        than simply saying nothing.
+
+        Frame offsets are deliberately not applied. The file describes one video
+        exactly as that video's H5 does, so it stays correct no matter how the
+        cameras are aligned with each other afterwards.
+        """
+        if dlc_baseline is None or not data_loaded_from_dlc:
+            return []
+
+        height = self.frameFinder.oh
+        records = []
+
+        for track in track_list_global:
+            if track not in self.points:
+                continue
+
+            current = self.points[track].toarray()
+            track_idx = track_list_global.index(track)
+            c0 = 2 * track_idx * no_cameras_global + 2 * self.original_index
+            if c0 + 2 <= dlc_baseline.shape[1]:
+                baseline = dlc_baseline[:, c0:c0 + 2].toarray()
+            else:
+                # A track added after the DLC load has no model output at all,
+                # so every point in it is the user's.
+                baseline = np.zeros((0, 2))
+
+            # Pad the shorter of the two so rows line up; a missing row is
+            # simply "no point", which is how [0, 0] already reads.
+            n = max(current.shape[0], baseline.shape[0])
+            current = np.vstack([current, np.zeros((n - current.shape[0], 2))])
+            baseline = np.vstack([baseline, np.zeros((n - baseline.shape[0], 2))])
+
+            has_current = np.any(current != 0, axis=1)
+            has_baseline = np.any(baseline != 0, axis=1)
+            # 0.1 px, the same tolerance the likelihood-threshold reload uses to
+            # decide whether a point was hand-edited.
+            unmoved = np.all(np.abs(current - baseline) <= 0.1, axis=1)
+            changed = (has_current | has_baseline) & ~(has_current & has_baseline & unmoved)
+
+            individual, bodypart = split_dlc_track_name(track)
+            for k in np.nonzero(changed)[0]:
+                if has_current[k]:
+                    # Flip y back to DLC's top-left origin
+                    records.append((int(k), individual, bodypart,
+                                    float(current[k, 0]), height - float(current[k, 1])))
+                else:
+                    records.append((int(k), individual, bodypart, None, None))
+
+        records.sort(key=lambda r: (r[0], r[1], r[2]))
+        return records
+
+    def save_manual_corrections(self):
+        """Write only the hand-edited points, one file per camera.
+
+        The DLC output itself is not written. That keeps the corrections usable
+        after the videos are re-analysed with a better model: utils/DLCbatch.py
+        reads these files and substitutes them for the model's output at exactly
+        the frames and cameras they cover, leaving everything else to DLC.
+        """
+        if not data_loaded_from_dlc or dlc_baseline is None:
+            QtWidgets.QMessageBox.warning(None, "No DeepLabCut data",
+                "Manual corrections can only be saved after loading DeepLabCut "
+                "data, since there is nothing to compare your edits against.")
+            return
+
+        video_windows = [w for w in pyglet.app.windows if isinstance(w, ClickerWindow)]
+        video_windows.sort(key=lambda w: w.actual_camera_number)
+
+        # Gather everything first so nothing is written if there is nothing to write
+        pending = []
+        total = 0
+        for window in video_windows:
+            h5_index = window.actual_camera_number - 1
+            if not (0 <= h5_index < len(dlc_h5_file_paths)):
+                print(f"No H5 path recorded for camera {window.actual_camera_number}, skipping")
+                continue
+
+            records = window.collect_manual_corrections()
+            if not records:
+                continue
+
+            h5_path = dlc_h5_file_paths[h5_index]
+            out_path = os.path.join(os.path.dirname(h5_path),
+                                    dlc_video_base(h5_path) + MANUAL_CORRECTIONS_SUFFIX)
+            # Two cameras landing on one filename would silently lose a camera's
+            # corrections, so refuse rather than write over the first one.
+            clash = next((w for w, _, p, _ in pending if p == out_path), None)
+            if clash is not None:
+                QtWidgets.QMessageBox.warning(None, "Error",
+                    f"Cameras {clash.actual_camera_number} and "
+                    f"{window.actual_camera_number} would both write to "
+                    f"{os.path.basename(out_path)}. Their DeepLabCut files need "
+                    f"distinct video names before corrections can be saved.")
+                return
+            pending.append((window, h5_path, out_path, records))
+            total += len(records)
+
+        if not pending:
+            QtWidgets.QMessageBox.information(None, "Nothing to save",
+                "No points differ from the DeepLabCut data that was loaded, so "
+                "there are no manual corrections to save.")
+            return
+
+        existing = [os.path.basename(p) for _, _, p, _ in pending if os.path.exists(p)]
+        if existing:
+            reply = QtWidgets.QMessageBox.question(
+                None, "Overwrite Files?",
+                "The following manual-correction files already exist and will be "
+                "replaced:\n\n" + "\n".join(existing) + "\n\nDo you want to continue?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
+
+        written = []
+        try:
+            for window, h5_path, out_path, records in pending:
+                cam = window.actual_camera_number
+                scorer = dlc_scorer[cam - 1] if len(dlc_scorer) >= cam else ''
+                video_name = os.path.basename(window.movie) if window.movie else ''
+                table = pandas.DataFrame(records,
+                                         columns=['frame', 'individual', 'bodypart', 'x', 'y'])
+                with open(out_path, 'w', newline='') as f:
+                    f.write("# Argus Clicker manual corrections\n")
+                    f.write(f"# video: {video_name}\n")
+                    f.write(f"# camera: {cam}\n")
+                    f.write(f"# source_h5: {os.path.basename(h5_path)}\n")
+                    f.write(f"# scorer: {scorer}\n")
+                    f.write(f"# image_height: {window.frameFinder.oh}\n")
+                    f.write(f"# saved: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n")
+                    f.write("# Coordinates are DeepLabCut pixel space (origin top-left) and\n")
+                    f.write("# frame is this video's own 0-based frame, so no frame offset is\n")
+                    f.write("# baked in. Blank x and y mean the DeepLabCut point at that frame\n")
+                    f.write("# is wrong and should be discarded.\n")
+                    table.to_csv(f, index=False, na_rep='')
+                written.append(f"{os.path.basename(out_path)}  ({len(records)} points)")
+                print(f"Saved {len(records)} manual corrections for camera {cam}: {out_path}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(None, "Error",
+                f"Failed to save manual corrections: {str(e)}")
+            return
+
+        QtWidgets.QMessageBox.information(None, "Saved",
+            f"Saved {total} manual correction(s) across {len(written)} camera(s):\n\n"
+            + "\n".join(written)
+            + f"\n\nWritten next to the DeepLabCut H5 files. DLCbatch.py picks "
+              f"these up automatically and uses them in place of the model's "
+              f"output at these frames, including after you re-analyse the "
+              f"videos with a new model.")
+
     def save_dlc_label_mode(self):
         """Save data in DLC labeling mode - saves back to the original CollectedData file"""
         global dlc_folder_handler, dlc_video_height
@@ -4019,6 +4246,7 @@ class ClickerWindow(pyglet.window.Window):
         ---------------
         S               - Save points (format depends on output settings)
         Ctrl+S          - Save As (opens file dialog)
+        Ctrl+M          - Save only points hand-edited since the DLC data loaded
         L               - Load points from CSV/TSV file
         
         IMAGE CAPTURE:
@@ -4265,6 +4493,11 @@ class ClickerWindow(pyglet.window.Window):
                 self.save_sparse(saveas)
             else:
                 self.save_non_sparse(saveas)
+            self.toggleBusy()
+        # save only the points hand-edited since the DLC data were loaded
+        elif symbol == key.M and modifiers & key.MOD_CTRL:
+            self.toggleBusy()
+            self.save_manual_corrections()
             self.toggleBusy()
         elif symbol == key.X:
             self.toggleBusy()

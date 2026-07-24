@@ -26,6 +26,13 @@ Frame alignment:
     each video by. Determining those offsets is the caller's job, since the
     information lives in whatever metadata the acquisition system wrote.
 
+Manual corrections:
+    Points corrected by hand in Argus Clicker ("Save manual corrections only")
+    are written to <video>_manual.csv next to the H5 files. Those files are
+    picked up automatically and used in place of the model's output at the
+    frames and cameras they cover, so hand-checked points survive re-analysing
+    the videos with a refined model. Pass --no-manual-corrections to ignore them.
+
 NOTES:
 Currently in testing mode and not fully documented!
 """
@@ -51,15 +58,21 @@ try:
 except ImportError:
     ARGUS_OCAM_AVAILABLE = False
 
+# Suffix of the manual-correction files written by argus-click's
+# save_manual_corrections. The two must be changed together.
+MANUAL_CORRECTIONS_SUFFIX = '_manual.csv'
+
 
 class DLCBatchProcessor:
     def __init__(self, data_dir, likelihood_threshold=0.95, optimize_cameras=True,
-                 use_filtered=True, shuffle=1, frame_offsets=None):
+                 use_filtered=True, shuffle=1, frame_offsets=None,
+                 use_manual_corrections=True):
         self.data_dir = data_dir
         self.likelihood_threshold = likelihood_threshold
         self.optimize_cameras = optimize_cameras
         self.use_filtered = use_filtered
         self.shuffle = shuffle
+        self.use_manual_corrections = use_manual_corrections
         # {h5-name-prefix: rows to delay that camera by}; empty means every
         # camera starts at row 0, which is the behaviour when no offsets are given.
         self.frame_offsets = frame_offsets or {}
@@ -114,6 +127,7 @@ class DLCBatchProcessor:
         self.logger.info(f"Use filtered files: {self.use_filtered}")
         self.logger.info(f"Shuffle number: {self.shuffle}")
         self.logger.info(f"Frame offsets supplied for: {len(self.frame_offsets)} video(s)")
+        self.logger.info(f"Manual corrections: {'enabled' if self.use_manual_corrections else 'disabled'}")
         self.logger.info("="*60)
     
     def _validate_directories(self):
@@ -199,6 +213,58 @@ class DLCBatchProcessor:
         if not matches:
             return 0
         return int(self.frame_offsets[max(matches, key=len)])
+
+    def _manual_corrections_path(self, h5_file):
+        """The manual-corrections file covering one camera's H5, or None.
+
+        Argus Clicker names these after the video rather than the network
+        ('cam1_trial3_manual.csv' for 'cam1_trial3DLC_resnet50_...h5'), so a
+        correction keeps applying once the video is re-analysed with a refined
+        model under a different filename. Any file whose base is a prefix of the
+        H5 name matches, longest first, the same way _frame_offset_for keys off
+        the filename.
+        """
+        if not self.use_manual_corrections:
+            return None
+        stem = os.path.splitext(os.path.basename(h5_file))[0]
+        matches = []
+        for path in glob.glob(os.path.join(os.path.dirname(h5_file),
+                                           '*' + MANUAL_CORRECTIONS_SUFFIX)):
+            base = os.path.basename(path)[:-len(MANUAL_CORRECTIONS_SUFFIX)]
+            if base and stem.startswith(base):
+                matches.append((len(base), path))
+        if not matches:
+            return None
+        return max(matches)[1]
+
+    def _load_manual_corrections(self, path):
+        """Read a corrections file into {(individual, bodypart): {frame: (x, y)}}.
+
+        A value of None instead of an (x, y) pair means the user deleted the
+        model's point at that frame: it is wrong and must not be triangulated.
+        Coordinates are in DeepLabCut pixel space, matching the H5 they replace,
+        and frames are that video's own 0-based frames with no offset applied.
+        """
+        corrections = defaultdict(dict)
+        df = pd.read_csv(path, comment='#')
+
+        required = {'frame', 'bodypart', 'x', 'y'}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"{os.path.basename(path)} is missing column(s): "
+                             f"{', '.join(sorted(missing))}")
+
+        for row in df.itertuples(index=False):
+            individual = getattr(row, 'individual', '')
+            if pd.isna(individual):
+                individual = ''
+            key = (str(individual), str(row.bodypart))
+            if pd.isna(row.x) or pd.isna(row.y):
+                corrections[key][int(row.frame)] = None
+            else:
+                corrections[key][int(row.frame)] = (float(row.x), float(row.y))
+
+        return corrections
 
     def _find_trials(self):
         """Find all unique trials based on H5 file naming patterns."""
@@ -354,17 +420,61 @@ class DLCBatchProcessor:
                     individuals = df.columns.get_level_values(individual_level).unique().tolist()
                     individual = individuals[0]
                     cam_data = df[scorer_name][individual]
+                    active_individual = individual
                 else:
                     # Single animal DLC
                     cam_data = df[scorer_name]
-                
+                    active_individual = ''
+
+                # Points the user fixed by hand in Argus Clicker, if any. These
+                # override the model at exactly the frames they cover.
+                corrections_path = self._manual_corrections_path(h5_file)
+                corrections = {}
+                if corrections_path:
+                    try:
+                        corrections = self._load_manual_corrections(corrections_path)
+                        self.logger.info(f"    Manual corrections: {os.path.basename(corrections_path)}")
+                    except Exception as e:
+                        self.logger.error(f"    Could not read {corrections_path}: {e}")
+                    unknown = {bp for ind, bp in corrections
+                               if bp not in track_names and (ind in ('', active_individual))}
+                    if unknown:
+                        self.logger.warning(f"    Corrections name unknown bodypart(s), ignored: "
+                                            f"{', '.join(sorted(unknown))}")
+                n_applied = 0
+                n_dropped = 0
+                n_out_of_range = 0
+
                 # Apply likelihood threshold filtering
                 for track in track_names:
                     if track in cam_data.columns.get_level_values(0):
                         likelihood = cam_data[track]['likelihood'].values.copy()
                         x_vals = cam_data[track]['x'].values.copy()
                         y_vals = cam_data[track]['y'].values.copy()
-                        
+
+                        # Substitute the hand-corrected points while everything is
+                        # still in DeepLabCut's own coordinate space, so the flip
+                        # and threshold below treat them the same as model output.
+                        track_overrides = dict(corrections.get(('', track), {}))
+                        if active_individual:
+                            track_overrides.update(corrections.get((active_individual, track), {}))
+                        override_mask = np.zeros(len(x_vals), dtype=bool)
+                        for frame, xy in track_overrides.items():
+                            if not 0 <= frame < len(x_vals):
+                                n_out_of_range += 1
+                                continue
+                            override_mask[frame] = True
+                            if xy is None:
+                                # User deleted this point: the model is wrong here
+                                x_vals[frame] = np.nan
+                                y_vals[frame] = np.nan
+                                likelihood[frame] = 0.0
+                                n_dropped += 1
+                            else:
+                                x_vals[frame], y_vals[frame] = xy
+                                likelihood[frame] = 1.0
+                                n_applied += 1
+
                         # Flip Y coordinates from DeepLabCut (upper-left origin) to DLT (lower-left origin)
                         # Y_dlt = image_height - Y_dlc
                         # Use cam_pos (position among sorted cameras present), not the literal
@@ -372,9 +482,11 @@ class DLCBatchProcessor:
                         if hasattr(self, 'image_heights') and cam_pos < len(self.image_heights):
                             image_height = self.image_heights[cam_pos]
                             y_vals = image_height - y_vals
-                        
-                        # Set coordinates to NaN where likelihood is below threshold
-                        low_likelihood_mask = likelihood <= self.likelihood_threshold
+
+                        # Set coordinates to NaN where likelihood is below threshold.
+                        # Hand-corrected points are exempt: they are known good
+                        # regardless of what the model thought of that frame.
+                        low_likelihood_mask = (likelihood <= self.likelihood_threshold) & ~override_mask
                         x_vals[low_likelihood_mask] = np.nan
                         y_vals[low_likelihood_mask] = np.nan
 
@@ -396,7 +508,14 @@ class DLCBatchProcessor:
                             'y': y_vals,
                             'likelihood': likelihood
                         }
-                
+
+                if n_applied or n_dropped:
+                    self.logger.info(f"    Substituted {n_applied} hand-corrected point(s) "
+                                     f"and discarded {n_dropped} rejected point(s)")
+                if n_out_of_range:
+                    self.logger.warning(f"    {n_out_of_range} correction(s) fall outside this "
+                                        f"video's {len(df)} frames and were ignored")
+
                 max_frames = max(max_frames, len(df) + frame_offset)
 
             except Exception as e:
@@ -882,6 +1001,11 @@ Output CSV columns for each track (example for 'L1hip'):
                             '{"cam3_trial1": 10} to delay that video by 10 frames. '
                             'Keys are matched as prefixes of the H5 filename. '
                             'Cameras with no entry are not shifted (default: none)')
+    parser.add_argument('--no-manual-corrections', dest='manual_corrections',
+                       action='store_false', default=True,
+                       help='Ignore <video>_manual.csv correction files saved from '
+                            'Argus Clicker and use the raw DLC output everywhere '
+                            '(default: corrections are applied when present)')
 
     args = parser.parse_args()
 
@@ -907,7 +1031,8 @@ Output CSV columns for each track (example for 'L1hip'):
             optimize_cameras=args.optimize_cameras,
             use_filtered=args.filtered,
             shuffle=args.shuffle,
-            frame_offsets=frame_offsets
+            frame_offsets=frame_offsets,
+            use_manual_corrections=args.manual_corrections
         )
         processor.process_all_trials()
         
