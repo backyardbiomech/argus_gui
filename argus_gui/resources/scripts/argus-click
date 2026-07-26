@@ -5304,6 +5304,11 @@ def load_from_config(path):
     settings = project[7]["settings"]
 
     if load_points_from_dlc:
+        # Settings first, then the load: track names and scorers belong to the
+        # H5 files, so whatever load_dlc reads out of them has to win over
+        # whatever the config happened to record.
+        load_settings(settings)
+
         # Go through load_dlc so this is indistinguishable from clicking "Load
         # DeepLabCut data": it records the model's output as the baseline, which
         # is what saving manual corrections on their own diffs against. Loading
@@ -5326,12 +5331,13 @@ def load_from_config(path):
         offer_manual_corrections(config_h5_files,
                                  [w for w in windows if type(w) != GhostWindow])
     else:
+        # An xypts file names its own tracks, so the config's settings are the
+        # only record of what the session looked like and go on top.
         load_csv(points_path)
+        load_settings(settings)
 
-    load_settings(settings)
-
-    # load_dlc takes the track names from the H5 files, so whichever track the
-    # config wanted to open on need not exist any more.
+    # A config need not name a track that exists in the H5 files, and with the
+    # DLC route it need not name one at all.
     if current_track_global not in track_list_global:
         current_track_global = track_list_global[0]
     init_track = settings.get("init_track")
