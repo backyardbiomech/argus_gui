@@ -85,6 +85,7 @@ import time
 import numpy as np
 import copy
 import re
+import glob
 import threading
 
 from PySide6 import QtWidgets, QtCore
@@ -472,87 +473,68 @@ class OptionsPopupWindow(QtWidgets.QDialog):
         
         # Re-filter DLC data if threshold changed and we have DLC data loaded
         if threshold_changed and data_loaded_from_dlc and dlc_h5_file_paths:
+            if dlc_baseline is None:
+                # Without a baseline there is no way to tell these points from
+                # model output, so re-filtering could only discard them.
+                QtWidgets.QMessageBox.warning(None, "Cannot re-filter",
+                    "These points came from a file rather than from the "
+                    "DeepLabCut H5 files, so there is no record of what the "
+                    "model produced and the threshold cannot be re-applied "
+                    "without throwing your points away.\n\n"
+                    "The threshold is set for the next DeepLabCut load.")
+                super().accept()
+                return
             try:
                 import pyglet
-                
-                # Store manually edited points before re-filtering
-                manual_edits = {}
-                for window in pyglet.app.windows:
-                    if isinstance(window, ClickerWindow):
-                        manual_edits[window.actual_camera_number] = {}
-                        for track_name, track_data in window.points.items():
-                            # Store all current points (both DLC and manual)
-                            manual_edits[window.actual_camera_number][track_name] = track_data.copy()
-                
-                # Re-load DLC data with new threshold
+
+                # Which points are the user's own is a question the baseline
+                # answers, so ask it before load_dlc replaces the baseline, then
+                # lay the same corrections back over the reloaded data.
+                #
+                # Comparing point sets before and after the reload cannot answer
+                # it: the pre-reload set is gone by then, so both sides of the
+                # comparison end up being the new data and the threshold change
+                # has no visible effect in either direction - while the baseline
+                # moves, leaving the difference to be saved as the user's work.
+                clicker_windows = [w for w in pyglet.app.windows
+                                   if isinstance(w, ClickerWindow)]
+                clicker_windows.sort(key=lambda w: w.actual_camera_number)
+
+                pending = {}
+                for window in clicker_windows:
+                    records = window.collect_manual_corrections()
+                    if records:
+                        # Resolve track names now, while dlc_individuals still
+                        # describes the data these records came from.
+                        pending[window.original_index] = [
+                            (frame, join_dlc_track_name(individual, bodypart), x, y)
+                            for frame, individual, bodypart, x, y in records
+                        ]
+
+                # Re-load DLC data with new threshold. This resets dlc_baseline
+                # to the model's output at that threshold, which is what the
+                # corrections must continue to be measured against.
                 load_dlc(dlc_h5_file_paths, like=dlc_likelihood_threshold)
-                
-                # Update all video windows with the newly filtered data while preserving manual edits
-                for window in pyglet.app.windows:
-                    if isinstance(window, ClickerWindow):
-                        # Load new DLC data first
-                        window.update_tracks()  # Create track keys
-                        window.load_points()    # Load newly filtered data from load_data_global
-                        
-                        # Restore manual edits by overlaying them on top of DLC data
-                        if window.actual_camera_number in manual_edits:
-                            for track_name, manual_track_data in manual_edits[window.actual_camera_number].items():
-                                if track_name in window.points:
-                                    # Get the newly filtered DLC data for comparison
-                                    new_dlc_data = window.points[track_name].copy()
-                                    
-                                    # Find all points that exist in the manual edits (current state before re-filtering)
-                                    manual_nonzeros = set(manual_track_data.nonzero()[0])
-                                    new_dlc_nonzeros = set(new_dlc_data.nonzero()[0])
-                                    
-                                    # We need to check what the original DLC data was at this threshold
-                                    # by reloading just this window's data temporarily
-                                    original_dlc_data = load_data_global[:,
-                                        2 * track_list_global.index(track_name) * no_cameras_global + 2 * window.original_index:
-                                        2 * track_list_global.index(track_name) * no_cameras_global + 2 * window.original_index + 2]
-                                    original_dlc_nonzeros = set(original_dlc_data.nonzero()[0])
-                                    
-                                    # For each point in manual edits, determine if it's a manual modification
-                                    for frame_idx in manual_nonzeros:
-                                        manual_point = manual_track_data[frame_idx].toarray()[0]
-                                        if manual_point[0] != 0 or manual_point[1] != 0:  # Valid manual point
-                                            should_preserve = False
-                                            
-                                            # Case 1: Point exists in manual but not in original DLC = manually added
-                                            if frame_idx not in original_dlc_nonzeros:
-                                                should_preserve = True
-                                            else:
-                                                # Case 2: Point exists in both, check if coordinates are different = manually corrected
-                                                original_dlc_point = original_dlc_data[frame_idx].toarray()[0]
-                                                # Any difference means it was manually edited (even 1 pixel)
-                                                if (abs(manual_point[0] - original_dlc_point[0]) > 0.1 or 
-                                                    abs(manual_point[1] - original_dlc_point[1]) > 0.1):
-                                                    should_preserve = True
-                                            
-                                            # Case 3: Check for manual deletions (point was in original DLC but removed manually)
-                                            # This is harder to detect, but we can infer it if:
-                                            # - Point exists in original DLC (would be in new DLC too if threshold allows)
-                                            # - Point exists in new DLC (threshold allows it)  
-                                            # - But point doesn't exist in manual edits
-                                            # This case is handled by NOT restoring points that were manually deleted
-                                            
-                                            if should_preserve:
-                                                window.points[track_name][frame_idx] = manual_point
-                                    
-                                    # Handle manual deletions: check for points that exist in new DLC but were removed manually
-                                    for frame_idx in new_dlc_nonzeros:
-                                        if (frame_idx in original_dlc_nonzeros and  # Point was in original DLC
-                                            frame_idx not in manual_nonzeros):     # But was removed manually
-                                            # This point was manually deleted, so remove it from the new DLC data
-                                            window.points[track_name][frame_idx] = np.array([0., 0.])
-                        
-                        # Redraw the tracks with preserved manual edits
-                        window.clearBatch()
-                        window.draw_tracks()
-                        window.update_drawings()
-                
-                print(f"DLC data re-filtered with likelihood threshold: {dlc_likelihood_threshold}")
-                print("Manual edits have been preserved where possible.")
+
+                # Overlay before the windows read load_data_global, so they pick
+                # up model output and corrections together.
+                counts = overlay_dlc_corrections(pending, clicker_windows,
+                                                 no_cameras_global)
+
+                for window in clicker_windows:
+                    window.update_tracks()  # Create any track keys that are new
+                    window.load_points()    # Model output plus corrections
+                    window.clearBatch()
+                    window.draw_tracks()
+                    window.update_drawings()
+
+                restored = sum(a + d for a, d, _ in counts.values())
+                dropped = sum(s for _, _, s in counts.values())
+                print(f"DLC data re-filtered with likelihood threshold: "
+                      f"{dlc_likelihood_threshold}")
+                print(f"Reapplied {restored} manual correction(s)"
+                      + (f"; {dropped} no longer fit the data and were dropped"
+                         if dropped else ""))
                 
             except Exception as e:
                 QtWidgets.QMessageBox.warning(None,
@@ -713,6 +695,13 @@ class OptionsPopupWindow(QtWidgets.QDialog):
                 current_track_global = self.track_list[0]
                 self.tracks.setCurrentText(current_track_global)
             
+            # Corrections saved from an earlier session are only useful if they
+            # go back on top of the model output, so offer that before the
+            # windows read load_data_global.
+            clicker_windows = [w for w in pyglet.app.windows
+                               if isinstance(w, ClickerWindow)]
+            offer_manual_corrections(h5_file_paths, clicker_windows)
+
             # Clear existing track data and update all video windows with the new track data
             for window in pyglet.app.windows:
                 if isinstance(window, ClickerWindow):
@@ -721,7 +710,7 @@ class OptionsPopupWindow(QtWidgets.QDialog):
                     # Now update with new DLC tracks
                     window.update_tracks()  # Create track keys
                     window.load_points()    # Load actual data from load_data_global
-            
+
             QtWidgets.QMessageBox.information(None,
                 "Success",
                 f"Successfully loaded DeepLabCut data from {len(h5_file_paths)} file(s).\n"
@@ -968,6 +957,202 @@ def split_dlc_track_name(track):
         if track.startswith(ind + '_'):
             return ind, track[len(ind) + 1:]
     return '', track
+
+
+def join_dlc_track_name(individual, bodypart):
+    """The Argus track name for an (individual, bodypart) pair.
+
+    The inverse of split_dlc_track_name: single-animal projects record an empty
+    individual and are named by body part alone.
+    """
+    return f'{individual}_{bodypart}' if individual else bodypart
+
+
+def find_manual_corrections(h5_files):
+    """Saved corrections files covering these H5 files, as {camera index: path}.
+
+    Matched exactly the way utils/DLCbatch.py matches them, on the H5 name
+    beginning with the file's base and the longest base winning, so clicker and
+    the batch triangulation always agree about which file covers which camera.
+    """
+    found = {}
+    for c, h5_file in enumerate(h5_files):
+        stem = os.path.splitext(os.path.basename(h5_file))[0]
+        matches = []
+        for path in glob.glob(os.path.join(os.path.dirname(h5_file),
+                                           '*' + MANUAL_CORRECTIONS_SUFFIX)):
+            base = os.path.basename(path)[:-len(MANUAL_CORRECTIONS_SUFFIX)]
+            if base and stem.startswith(base):
+                matches.append((len(base), path))
+        if matches:
+            found[c] = max(matches)[1]
+    return found
+
+
+def read_manual_corrections(path):
+    """Read one corrections file into (records, image_height).
+
+    Records are (frame, track, x, y) with x and y None where the user had
+    deleted the model's point. Coordinates stay in DeepLabCut's top-left space
+    here; the caller flips them, since only it knows the frame height.
+    """
+    table = pandas.read_csv(path, comment='#')
+
+    required = {'frame', 'bodypart', 'x', 'y'}
+    missing = required - set(table.columns)
+    if missing:
+        raise ValueError(f"{os.path.basename(path)} is missing column(s): "
+                         f"{', '.join(sorted(missing))}")
+
+    image_height = None
+    with open(path) as handle:
+        for line in handle:
+            if not line.startswith('#'):
+                break
+            if line.startswith('# image_height:'):
+                try:
+                    image_height = int(line.split(':', 1)[1])
+                except ValueError:
+                    pass
+
+    records = []
+    for row in table.itertuples(index=False):
+        individual = getattr(row, 'individual', '')
+        if pandas.isna(individual):
+            individual = ''
+        track = join_dlc_track_name(str(individual), str(row.bodypart))
+        if pandas.isna(row.x) or pandas.isna(row.y):
+            records.append((int(row.frame), track, None, None))
+        else:
+            records.append((int(row.frame), track, float(row.x), float(row.y)))
+
+    return records, image_height
+
+
+def overlay_dlc_corrections(corrections, windows, ncams):
+    """Lay correction records over the DLC data that was just loaded.
+
+    corrections maps a 0-based camera index to (frame, track, x, y) records in
+    DeepLabCut pixel space, with x and y None for a point the user rejected -
+    the same shape ClickerWindow.collect_manual_corrections produces and
+    read_manual_corrections parses.
+
+    Only load_data_global is touched, deliberately not dlc_baseline: the
+    baseline has to stay as the model's own output, so that saving corrections
+    again re-derives these same rows along with whatever was changed since. Were
+    the corrections folded into the baseline too, they would look identical to
+    model output and the next save would drop them.
+
+    Returns {camera index: (applied, deleted, skipped)}.
+    """
+    global load_data_global
+
+    by_camera = {w.actual_camera_number: w for w in windows}
+    data = load_data_global.tolil()
+    nrows = data.shape[0]
+    counts = {}
+
+    for c in sorted(corrections):
+        window = by_camera.get(c + 1)
+        if window is None:
+            continue
+        height = window.frameFinder.oh
+        applied = deleted = skipped = 0
+        for frame, track, x, y in corrections[c]:
+            if track not in track_list_global or not (0 <= frame < nrows):
+                skipped += 1
+                continue
+            col = 2 * track_list_global.index(track) * ncams + 2 * c
+            if x is None:
+                data[frame, col] = 0
+                data[frame, col + 1] = 0
+                deleted += 1
+            else:
+                data[frame, col] = x
+                data[frame, col + 1] = height - y
+                applied += 1
+        counts[c] = (applied, deleted, skipped)
+
+    load_data_global = data.tocsc()
+    return counts
+
+
+def apply_manual_corrections(h5_files, windows):
+    """Lay previously saved hand corrections back over freshly loaded DLC data.
+
+    Returns a summary string, or None when there was nothing to apply.
+    """
+    found = find_manual_corrections(h5_files)
+    if not found:
+        return None
+
+    by_camera = {w.actual_camera_number: w for w in windows}
+    corrections = {}
+    notes = []
+
+    for c in sorted(found):
+        path = found[c]
+        window = by_camera.get(c + 1)
+        if window is None:
+            continue
+        records, stated_height = read_manual_corrections(path)
+        if stated_height is not None and stated_height != window.frameFinder.oh:
+            # Flipping y against the wrong height would move every corrected
+            # point, quietly, so refuse this file rather than corrupt it.
+            notes.append(f"{os.path.basename(path)}: skipped, saved against a "
+                         f"height of {stated_height} px but camera {c + 1} is "
+                         f"{window.frameFinder.oh} px")
+            continue
+        corrections[c] = records
+
+    counts = overlay_dlc_corrections(corrections, windows, len(h5_files))
+
+    for c in sorted(counts):
+        applied, deleted, skipped = counts[c]
+        detail = f"{applied} point(s)"
+        if deleted:
+            detail += f", {deleted} deletion(s)"
+        if skipped:
+            detail += f", {skipped} skipped as out of range"
+        notes.append(f"{os.path.basename(found[c])}: {detail}")
+
+    return "\n".join(notes)
+
+
+def offer_manual_corrections(h5_files, windows):
+    """Ask whether to reapply saved hand corrections, and do it if so.
+
+    Call between load_dlc and the windows reading load_data_global. Returns
+    whether anything was applied.
+    """
+    found = find_manual_corrections(h5_files)
+    if not found:
+        return False
+
+    names = "\n".join(os.path.basename(found[c]) for c in sorted(found))
+    reply = QtWidgets.QMessageBox.question(
+        None, "Load manual corrections?",
+        "Hand corrections saved earlier were found alongside the DeepLabCut "
+        "files:\n\n" + names + "\n\nLoad them on top of the DeepLabCut data?\n\n"
+        "Choosing No loads the model's output alone. Either way the files are "
+        "left on disk.",
+        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        QtWidgets.QMessageBox.Yes
+    )
+    if reply != QtWidgets.QMessageBox.Yes:
+        return False
+
+    try:
+        summary = apply_manual_corrections(h5_files, windows)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(None, "Error",
+            f"Could not load manual corrections:\n{e}\n\n"
+            "The DeepLabCut data is loaded without them.")
+        return False
+
+    if summary:
+        print("Loaded manual corrections:\n" + summary)
+    return True
 
 
 # called once to load the CSV into a numpy array a populate the track list, expects a header
@@ -3423,7 +3608,8 @@ class ClickerWindow(pyglet.window.Window):
                 "init_track": track_list_global[0],
                 "data_loaded_from_dlc": data_loaded_from_dlc,
                 "dlc_scorer": dlc_scorer,
-                "dlc_h5_file_paths": dlc_h5_file_paths
+                "dlc_h5_file_paths": dlc_h5_file_paths,
+                "dlc_likelihood": dlc_likelihood_threshold
             }
 
             ClickerProject.create(proj_path=filename,
@@ -3569,7 +3755,8 @@ class ClickerWindow(pyglet.window.Window):
                 "init_track": track_list_global[0],
                 "data_loaded_from_dlc": data_loaded_from_dlc,
                 "dlc_scorer": dlc_scorer,
-                "dlc_h5_file_paths": dlc_h5_file_paths
+                "dlc_h5_file_paths": dlc_h5_file_paths,
+                "dlc_likelihood": dlc_likelihood_threshold
             }
 
             ClickerProject.create(proj_path=filename,
@@ -4976,6 +5163,8 @@ def load_from_config(path):
     global movies_global
     global DLTCoefficients
     global dlt_filename
+    global dlc_likelihood_threshold
+    global current_track_global
 
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -4994,7 +5183,21 @@ def load_from_config(path):
     try:
         project_videos = project[0]
         project_points = project[1]
-        if not check_if_file(project_points["points"]): 
+        points_path = project_points["points"]
+
+        # A config carries its point data either as an xypts file or as the
+        # DeepLabCut H5 files the points came from. The H5 route is taken only
+        # when there is no points file, so reopening a saved session still
+        # restores the points that session held, hand corrections included.
+        project_settings = project[7]["settings"] or {}
+        config_h5_files = project_settings.get("dlc_h5_file_paths") or []
+        load_points_from_dlc = points_path is None and bool(config_h5_files)
+
+        if load_points_from_dlc:
+            for h5_path in config_h5_files:
+                if not check_if_file(h5_path):
+                    return
+        elif not check_if_file(points_path):
             return
 
         project_resultion = project[2]
@@ -5035,7 +5238,9 @@ def load_from_config(path):
                 frame_offset = loaded_offsets[frame_idx][camera_index]
                 # Skip NaN values
                 if not np.isnan(frame_offset) and frame_offset != 0:
-                    offset = frame_offset
+                    # The CSV parses as floats, but offsets index into frame
+                    # arrays, and sparse matrices reject inexact indices.
+                    offset = int(frame_offset)
                     break  # Use the first non-zero value found
             useable_offsets.append(offset)
             print(f"Camera {camera_index + 1} offset loaded as: {offset}")
@@ -5096,11 +5301,43 @@ def load_from_config(path):
                 print("Please check your OpenGL drivers and system compatibility.")
             return
 
-    load_csv(project_points["points"])
-    
     settings = project[7]["settings"]
+
+    if load_points_from_dlc:
+        # Go through load_dlc so this is indistinguishable from clicking "Load
+        # DeepLabCut data": it records the model's output as the baseline, which
+        # is what saving manual corrections on their own diffs against. Loading
+        # the same points from an xypts file leaves no baseline, and the
+        # corrections-only save has nothing to compare and writes nothing.
+        if settings.get("dlc_likelihood") is not None:
+            dlc_likelihood_threshold = float(settings["dlc_likelihood"])
+        try:
+            load_dlc(config_h5_files, like=dlc_likelihood_threshold)
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(None,
+                "Error",
+                f"Could not load DeepLabCut data:\n{e}"
+            )
+            return
+
+        # Hand corrections from an earlier pass at this trial live next to the
+        # H5 files. update_after reads load_data_global after this returns, so
+        # laying them over it here is enough for the windows to show them.
+        offer_manual_corrections(config_h5_files,
+                                 [w for w in windows if type(w) != GhostWindow])
+    else:
+        load_csv(points_path)
+
     load_settings(settings)
-    
+
+    # load_dlc takes the track names from the H5 files, so whichever track the
+    # config wanted to open on need not exist any more.
+    if current_track_global not in track_list_global:
+        current_track_global = track_list_global[0]
+    init_track = settings.get("init_track")
+    if init_track not in track_list_global:
+        init_track = track_list_global[0]
+
     if sys.platform == 'win32':
         pyglet.clock.schedule_once(check_to_close, .5)
 
@@ -5122,7 +5359,7 @@ def load_from_config(path):
 
         # Safely change track and update all windows
         if indexable_windows and indexable_windows[0].safe_switch_to():
-            indexable_windows[0].change_track(settings["init_track"])
+            indexable_windows[0].change_track(init_track)
             indexable_windows[0].update_all_windows()
 
         for window in indexable_windows:
