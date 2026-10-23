@@ -51,3 +51,9 @@ build/lib/argus_gui/resources/__init__.pyc
 
 # Agent working memory (local only)
 memory/
+# Jekyll (docs/)
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/.bundle/
+docs/vendor/

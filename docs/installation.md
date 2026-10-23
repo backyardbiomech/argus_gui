@@ -8,8 +8,9 @@ title: Installation
 This guide will help you install Argus GUI on your system. We provide multiple installation methods to suit different user preferences and environments.
 
 ## Installing Python (First Time Users)
-<details>
+<details markdown="1">
 <summary>👈 Click here if you need to install Python</summary>
+
 If you don't have Python installed or are unsure, you can use any instructions for installing Python on your system. The steps below are one of the simplest options for beginners.
 
 ### For Mac Users
@@ -135,7 +136,7 @@ argus-gui
 
 ## Option 2: Install with Conda
 
-<details>
+<details markdown="1">
 <summary> 👈 click here if you prefer using conda for package management:</summary>
 
 ### Step 1: Download Environment File
@@ -166,6 +167,7 @@ If you don't have conda installed, download and install [Miniconda](https://www.
 conda activate argus
 argus-gui
 ```
+
 </details>
 
 ### Daily Usage with Conda
