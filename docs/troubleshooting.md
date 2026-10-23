@@ -1,6 +1,11 @@
+---
+layout: default
+title: Troubleshooting
+---
+
 # Troubleshooting Guide
 
-This guide helps you solve common issues when using Argus GUI. If you can't find a solution here, please check our [FAQ](docs/faq.md) or contact support.
+This guide helps you solve common issues when using Argus GUI. If you can't find a solution here, please contact support.
 
 ## Installation Issues
 
@@ -220,5 +225,5 @@ Check log files in project directory for detailed error information.
 ### Community Resources
 
 - **GitHub Discussions**: [Community forum](https://github.com/backyardbiomech/argus_gui/discussions)
-- **Documentation**: [Full documentation](index.md)
+- **Documentation**: [Full documentation](index.html)
 - **Examples**: Check the test files and example projects

@@ -9,13 +9,13 @@ Argus is a python package with multiple tools for 3D camera calibration and reco
 
 Updated: 2026-03-12, tested on Windows 11 and MacOS 26.3
 
-Read the [full documentation](docs/index.md).
+Read the [full documentation](https://backyardbiomech.github.io/argus_gui/).
 
 Find our original website at [https://argus.web.unc.edu](https://argus.web.unc.edu).
 
 ### How do I get set up?
 
-Users new to Python should follow the full [installation instructions](docs/installation.md) to get started.
+Users new to Python should follow the full [installation instructions](https://backyardbiomech.github.io/argus_gui/installation.html) to get started.
 
 ### Quick installation instructions
 

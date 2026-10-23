@@ -1,3 +1,8 @@
+---
+layout: default
+title: Home
+---
+
 # Argus GUI Documentation
 
 Welcome to the official documentation for the **Argus** project - a comprehensive Python package for 3D camera calibration and reconstruction.
@@ -20,11 +25,11 @@ Argus packages together a suite of open-source, freely available software tools 
 
 Get up and running with Argus GUI in just a few steps:
 
-1. **[Installation](installation.md)** - Choose from pip or conda installation
-2. **[Quick Start Guide](quick-start.md)** 
-3. **[User Guide](user-guide.md)** - Comprehensive usage instructions
-4. **[Troublshooting](troubleshooting.md)** - Common issues and solutions
-5. **[Working with DeepLabCut](deeplabcut.md)** - Integrating Argus with DeepLabCut for advanced tracking
+1. **[Installation](installation.html)** - Choose from pip or conda installation
+2. **[Quick Start Guide](quick-start.html)** 
+3. **[User Guide](user-guide.html)** - Comprehensive usage instructions
+4. **[Troubleshooting](troubleshooting.html)** - Common issues and solutions
+5. **[Working with DeepLabCut](deeplabcut.html)** - Integrating Argus with DeepLabCut for advanced tracking
 
 
 ## Citation
@@ -33,7 +38,7 @@ If you use Argus in your research, please cite:
 
 **Jackson, B.E., Evangelista, D.J., Ray, D.D., and Hedrick, T.L.** (2016). 3D for the people: multi-camera motion capture in the field with consumer-grade cameras and open source software. *Biology Open*, 5(9), 1334-1342. [https://doi.org/10.1242/bio.018713](https://doi.org/10.1242/bio.018713)
 
-[Full citation details and BibTeX →](docs/citation.md)
+[Full citation details and BibTeX →](citation.html)
 
 ## Support
 
@@ -47,4 +52,4 @@ Argus GUI is licensed under the [GNU General Public License v3.0](https://github
 
 ---
 
-*Last updated: June 30, 2025*
+*Last updated: {{ site.time | date: "%B %-d, %Y" }}*

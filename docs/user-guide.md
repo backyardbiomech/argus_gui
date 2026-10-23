@@ -1,3 +1,8 @@
+---
+layout: default
+title: User Guide
+---
+
 # User Guide
 
 Welcome to the comprehensive user guide for Argus GUI. This guide covers all aspects of using the software for 3D camera calibration and reconstruction.
@@ -107,7 +112,7 @@ With any video window active, you can open the options dialog by typing `o` . Th
 
 ## Sync
 
-Before analyzing videos in **Clicker**, you need to determine the synchronization offsets between cameras. The **Sync** module provides tools to synchronize multiple video files based on their audio tracks. We suggest repeated loud sounds delivered directly to each camera. See [the paper](/docs/citation.md) for some details on how to synchronize cameras using sound. 
+Before analyzing videos in **Clicker**, you need to determine the synchronization offsets between cameras. The **Sync** module provides tools to synchronize multiple video files based on their audio tracks. We suggest repeated loud sounds delivered directly to each camera. See [the paper](citation.html) for some details on how to synchronize cameras using sound. 
 
 ![Sync Tab](images/sync_img.png)
 

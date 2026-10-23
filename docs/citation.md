@@ -1,3 +1,8 @@
+---
+layout: default
+title: Citation
+---
+
 # Citation and Publications
 
 ## How to Cite Argus
@@ -8,6 +13,7 @@ If you use Argus GUI in your research, please cite the following paper:
 
 ## BibTeX Citation
 
+{% raw %}
 ```bibtex
 @article{Jackson3Dpeoplemulticamera2016,
   title = {{3D for the people: multi-camera motion capture in the field with consumer-grade cameras and open source software}},
@@ -22,6 +28,7 @@ If you use Argus GUI in your research, please cite the following paper:
   url = {https://doi.org/10.1242/bio.018713}
 }
 ```
+{% endraw %}
 
 ## Abstract
 

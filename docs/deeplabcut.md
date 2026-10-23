@@ -1,3 +1,8 @@
+---
+layout: default
+title: DeepLabCut
+---
+
 # Working with DeepLabCut
 Argus GUI can be integrated with [DeepLabCut](https://github.com/DeepLabCut/DeepLabCut), a popular tool for animal pose estimation, to enhance your 3D tracking capabilities. This section provides guidance on how to set up and use Argus with DeepLabCut.
 
@@ -43,7 +48,7 @@ If you have a DeepLabCut model trained for 3D tracking, you can use Argus **Wand
 1. Train your DeepLabCut model to track each video. Ignore DeepLabCut's 3D tracking capabilities, as Argus will handle that. This might be one model per camera, or if all cameras have similar enough views you might make a single model for all cameras.
 2. Track your animals in each camera using DeepLabCut. This should produce a .h5 file with the tracking data for each camera.
 3. You can train a separate model to track a wand with DeepLabCut. However, since only about 60 wand points are needed, it may be faster for single set-ups to manually track the wand using Argus **Clicker**. If you used DeepLabCut to track the wand, open all of the wand videos in Argus **Clicker** with the appropriate offsets. Once the video windows are open, type `O` for the options window and click the `Load DeepLabCut data` button to import the DeepLabCut tracking data. You will be asked for one tracking file per video, so make sure you open them in the same order as you loaded the videos. Clean up the wand tracks and save the data as an Argus file.
-4. Re-open the videos and manually digitize some unpaired points and reference points if needed (see the [Wand module documentation](user-guide.md#wand) for details).
+4. Re-open the videos and manually digitize some unpaired points and reference points if needed (see the [Wand module documentation](user-guide.html#wand) for details).
 5. Open the **Wand** module and load the wand tracking data (paired points), unpaired points, and reference points, and camera profiles. Run wand, remove outliers if needed, and save the results.
 6. Open the **Clicker** module and load the animal tracking videos with appropriate offsets.
 7. Once the video windows are open, type `O` for the options window and click the `Load DeepLabCut data` button to import the DeepLabCut tracking data for each camera. You will be asked for one tracking file per video, so make sure you open them in the same order as you loaded the videos.
@@ -110,7 +115,7 @@ DLC labeling mode includes special keyboard shortcuts for efficient navigation:
 - **V**: Toggle viewfinder (zoomed region)
 - **+/-**: Zoom in/out at mouse position
 
-- These and other clicker keyboard shortcuts are the same as in normal [**Clicker** function](user-guide.md#clicker).
+- These and other clicker keyboard shortcuts are the same as in normal [**Clicker** function](user-guide.html#clicker).
 
 
 #### Editing Labels

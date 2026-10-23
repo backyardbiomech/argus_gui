@@ -20,7 +20,9 @@ header_pages:
   - installation.md
   - quick-start.md
   - user-guide.md
+  - deeplabcut.md
   - troubleshooting.md
+  - citation.md
 
 # Exclude from processing
 exclude:

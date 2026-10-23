@@ -1,6 +1,11 @@
+---
+layout: default
+title: Quick Start
+---
+
 # Quick Start Guide
 
-Get up and running with your first tracking effort! This guide assumes you have already [installed Argus GUI](docs/installation.md).
+Get up and running with your first tracking effort! This guide assumes you have already [installed Argus GUI](installation.html).
 
 ## Your First Track
 
@@ -47,10 +52,9 @@ argus-gui
 
 ## What's Next?
 
-- Read the full [User Guide](docs/user-guide.md) for detailed instructions
+- Read the full [User Guide](user-guide.html) for detailed instructions
 
 ## Need Help?
 
-- Check the [Troubleshooting Guide](docs/troubleshooting.md)
-- Review the [FAQ](docs/faq.md)
+- Check the [Troubleshooting Guide](troubleshooting.html)
 

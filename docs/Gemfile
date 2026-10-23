@@ -12,14 +12,10 @@ source "https://rubygems.org"
 gem "jekyll", "~> 4.3.2"
 gem "minima", "~> 2.5"
 
-# GitHub Pages compatibility
-gem "github-pages", group: :jekyll_plugins
-
-# Plugins
+# Plugins (keep in sync with _config.yml)
 group :jekyll_plugins do
   gem "jekyll-feed", "~> 0.12"
   gem "jekyll-sitemap"
-  gem "jekyll-github-alerts"
 end
 
 # Windows and JRuby does not include zoneinfo files, so bundle the tzinfo-data gem
