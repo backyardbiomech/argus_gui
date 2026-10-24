@@ -188,16 +188,18 @@ If you encounter an error related to `cv2` or `opencv`, or if omnidirectional ca
 **With pip:**
 ```bash
 pip uninstall opencv-python
-pip install opencv-contrib-python
+pip install "opencv-contrib-python<5"
 ```
 
 **With uv:**
 ```bash
 uv pip uninstall opencv-python
-uv pip install opencv-contrib-python
+uv pip install "opencv-contrib-python<5"
 ```
 
 **Note:** The `opencv-contrib-python` package includes additional modules (like `omnidir`) needed for omnidirectional camera calibration.
+
+**Note:** Argus requires OpenCV 4.x. OpenCV 5.0 changes behavior that wand calibration depends on, and with it installed sparse bundle adjustment fails with `initial motstr-SBA error -nan(ind)` and `SbaError: sparseBundleAdjust() C call returned error -1`. If you already have 5.x, downgrade with `pip install --force-reinstall --no-deps "opencv-contrib-python<5"`.
 
 #### FFmpeg Error (Windows)
 If you encounter an error related to `ffmpeg` or `ffplay`, or an error reporting something like a file cannot be found:

@@ -17,7 +17,7 @@ dependencies:
     - argus
     - imageio
     - imageio-ffmpeg
-    - opencv-contrib-python
+    - opencv-contrib-python<5.0.0
     - pyglet
     - pyside6
     - pyopengl

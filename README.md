@@ -68,11 +68,11 @@ Then run: `argus-gui`
   ```bash
   # With pip:
   pip uninstall opencv-python
-  pip install opencv-contrib-python
+  pip install "opencv-contrib-python<5"
   
   # With uv:
   uv pip uninstall opencv-python
-  uv pip install opencv-contrib-python
+  uv pip install "opencv-contrib-python<5"
   ```
 
 - If you (especially on Windows) encounter an error related to `ffmpeg`, or `ffplay`, download the latest version of `ffmpeg` add it to your system's PATH using <a href="https://www.wikihow.com/Install-FFmpeg-on-Windows" target="_blank">these instructions</a>.
